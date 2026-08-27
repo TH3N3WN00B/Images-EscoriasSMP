@@ -130,6 +130,9 @@ public class Images extends JavaPlugin implements Listener {
         MapHelper.invisible = config.getBoolean("invisible-frames", true);
         MapHelper.showDistance = config.getInt("show-distance", 64);
         MapHelper.hideDistance = config.getInt("hide-distance", 128);
+        if (config.getBoolean("update-check", true)) {
+            Updater.start(config.getInt("update-interval-minutes", 360));
+        }
         String type = config.getString("database.type").toUpperCase(Locale.ENGLISH);
         switch (type) {
             case "MYSQL":
@@ -188,6 +191,7 @@ public class Images extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        Updater.apply(getFile());
         Scheduler.shutdown();
     }
 

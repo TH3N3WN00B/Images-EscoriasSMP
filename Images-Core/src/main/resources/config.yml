@@ -44,3 +44,10 @@ permissions:
   # by the original image creator
   # This excludes players with the permission 'images.restricted.bypass'
   creator-restricted: false
+
+# Check for a newer version on GitHub Releases and download it
+# automatically. The new version is applied on the next restart.
+update-check: true
+
+# How often to check for updates, in minutes
+update-interval-minutes: 360
