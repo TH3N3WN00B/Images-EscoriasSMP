@@ -26,6 +26,8 @@ package com.andavin.images;
 import com.andavin.util.Logger;
 import com.andavin.util.Scheduler;
 
+import org.bukkit.Bukkit;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -36,6 +38,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -54,6 +59,7 @@ public final class Updater {
     private static final Pattern TAG = Pattern.compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
     private static final Pattern ASSET = Pattern.compile("\"browser_download_url\"\\s*:\\s*\"([^\"]+\\.jar)\"");
     private static final Pattern NUMERIC = Pattern.compile("\\d+");
+    private static final Pattern MINECRAFT = Pattern.compile("\\d+\\.\\d+(\\.\\d+)?");
 
     private static Path downloaded;
 
@@ -121,7 +127,13 @@ public final class Updater {
                 return;
             }
 
-            download(latest);
+            String url = selectAsset(latest.urls, minecraftVersion());
+            if (url == null) {
+                Logger.debug("No update jar available for Minecraft {}", minecraftVersion());
+                return;
+            }
+
+            download(latest.version, url);
         } catch (Exception e) {
             Logger.warn(e, "Failed to check for updates");
         }
@@ -153,11 +165,16 @@ public final class Updater {
                 String body = readAll(in);
                 Matcher tag = TAG.matcher(body);
                 Matcher asset = ASSET.matcher(body);
-                if (!tag.find() || !asset.find()) {
+                if (!tag.find()) {
                     return null;
                 }
 
-                return new Latest(tag.group(1), asset.group(1));
+                List<String> urls = new ArrayList<>(4);
+                do {
+                    urls.add(asset.group(1));
+                } while (asset.find());
+
+                return new Latest(tag.group(1), urls);
             }
         } finally {
             connection.disconnect();
@@ -165,17 +182,55 @@ public final class Updater {
     }
 
     /**
+     * Pick the jar asset that was built for the given Minecraft version.
+     * If no specific match is found then the first jar asset is used.
+     *
+     * @param urls All of the jar asset URLs from the release.
+     * @param minecraft The Minecraft version the server is running.
+     * @return The URL to download or {@code null} if there are no assets.
+     */
+    private static String selectAsset(List<String> urls, String minecraft) {
+
+        if (urls.isEmpty()) {
+            return null;
+        }
+
+        if (minecraft != null) {
+            String prefix = "images-escoriassmp-" + minecraft.toLowerCase(Locale.ENGLISH) + "-";
+            for (String url : urls) {
+                if (url.contains(prefix)) {
+                    return url;
+                }
+            }
+        }
+
+        return urls.get(0);
+    }
+
+    /**
+     * Get the Minecraft version that the server is currently running.
+     *
+     * @return The Minecraft version or {@code null} if it could not be determined.
+     */
+    private static String minecraftVersion() {
+
+        Matcher matcher = MINECRAFT.matcher(Bukkit.getBukkitVersion());
+        return matcher.find() ? matcher.group() : null;
+    }
+
+    /**
      * Download the given release jar into the plugin data folder and
      * remember it so that {@link #apply()} can install it on shutdown.
      *
-     * @param latest The release to download.
+     * @param version The version being downloaded.
+     * @param url The URL of the jar to download.
      * @throws IOException If the download could not be completed.
      */
-    private static void download(Latest latest) throws IOException {
+    private static void download(String version, String url) throws IOException {
 
         Path file = Images.getInstance().getDataFolder().toPath()
-                .resolve("update-" + latest.version + ".jar");
-        HttpURLConnection connection = (HttpURLConnection) new URL(latest.url).openConnection();
+                .resolve("update-" + version + ".jar");
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
         connection.setConnectTimeout(15_000);
         connection.setReadTimeout(15_000);
         connection.setInstanceFollowRedirects(true);
@@ -183,7 +238,7 @@ public final class Updater {
         try (InputStream in = connection.getInputStream()) {
             Files.copy(in, file, StandardCopyOption.REPLACE_EXISTING);
             downloaded = file;
-            Logger.info("Downloaded v{}, it will be applied on the next server restart.", latest.version);
+            Logger.info("Downloaded v{}, it will be applied on the next server restart.", version);
         } finally {
             connection.disconnect();
         }
@@ -246,11 +301,11 @@ public final class Updater {
     private static final class Latest {
 
         private final String version;
-        private final String url;
+        private final List<String> urls;
 
-        private Latest(String version, String url) {
+        private Latest(String version, List<String> urls) {
             this.version = version;
-            this.url = url;
+            this.urls = urls;
         }
     }
 }

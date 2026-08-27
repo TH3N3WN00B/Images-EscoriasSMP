@@ -39,21 +39,28 @@ jobs:
         run: |
           VERSION=$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Release jar: Images-EscoriasSMP-$VERSION.jar"
 
-      - name: Stage plugin jar
-        run: cp "Images-Core/target/images-${{ steps.version.outputs.version }}.jar" "Images-EscoriasSMP-${{ steps.version.outputs.version }}.jar"
+      - name: Stage versioned plugin jars
+        run: |
+          mkdir -p dist
+          for pom in Images-v*/pom.xml; do
+            MC=$(grep -A1 '<artifactId>spigot-api</artifactId>' "$pom" | grep -m1 '<version>' | sed -E 's/.*<version>([^<]+)<\/version>.*/\1/; s/-R0\.1-SNAPSHOT$//')
+            if [ -n "$MC" ]; then
+              cp "Images-Core/target/images-${{ steps.version.outputs.version }}.jar" "dist/images-escoriassmp-$MC-${{ steps.version.outputs.version }}.jar"
+            fi
+          done
+          ls -1 dist
 
-      - name: Upload plugin jar
+      - name: Upload plugin jars
         uses: actions/upload-artifact@v4
         with:
           name: Images-EscoriasSMP-${{ steps.version.outputs.version }}
-          path: Images-EscoriasSMP-${{ steps.version.outputs.version }}.jar
+          path: dist/*.jar
           if-no-files-found: error
           retention-days: 90
 
-      - name: Attach jar to release
+      - name: Attach jars to release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: Images-EscoriasSMP-${{ steps.version.outputs.version }}.jar
+          files: dist/*.jar
