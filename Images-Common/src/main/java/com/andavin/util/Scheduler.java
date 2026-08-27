@@ -28,6 +28,9 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.bukkit.scheduler.BukkitTask;
 
+import java.lang.reflect.Method;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
@@ -48,6 +51,29 @@ import java.util.function.Supplier;
 public final class Scheduler {
 
     private static Plugin instance;
+    private static final ExecutorService ASYNC = asyncExecutor();
+
+    /**
+     * Create an {@link ExecutorService} for asynchronous work. If the
+     * running JVM supports virtual threads (Java 21+) then they are used,
+     * otherwise a cached pool of platform threads is used instead.
+     */
+    private static ExecutorService asyncExecutor() {
+        try {
+            Method method = Executors.class.getMethod("newVirtualThreadPerTaskExecutor");
+            return (ExecutorService) method.invoke(null);
+        } catch (ReflectiveOperationException e) {
+            return Executors.newCachedThreadPool();
+        }
+    }
+
+    /**
+     * Shut the asynchronous executor down. This should be called when the
+     * plugin is disabled so that any pending work is cancelled.
+     */
+    public static void shutdown() {
+        ASYNC.shutdownNow();
+    }
 
     /**
      * Run a task synchronously on the main thread using
@@ -68,7 +94,7 @@ public final class Scheduler {
      * @return The {@link BukkitTask} that is returned after registering the task.
      */
     public static BukkitTask async(Runnable run) {
-        return Bukkit.getScheduler().runTaskAsynchronously(instance, run);
+        return Bukkit.getScheduler().runTaskAsynchronously(instance, () -> ASYNC.execute(run));
     }
 
     /**
@@ -92,7 +118,7 @@ public final class Scheduler {
      * @return The {@link BukkitTask} that is returned after registering the task.
      */
     public static BukkitTask laterAsync(Runnable run, long delay) {
-        return Bukkit.getScheduler().runTaskLaterAsynchronously(instance, run, delay);
+        return Bukkit.getScheduler().runTaskLaterAsynchronously(instance, () -> ASYNC.execute(run), delay);
     }
 
     /**
@@ -118,7 +144,7 @@ public final class Scheduler {
      * @return The {@link BukkitTask} that is returned after registering the task.
      */
     public static BukkitTask repeatAsync(Runnable run, long delay, long period) {
-        return Bukkit.getScheduler().runTaskTimerAsynchronously(instance, run, delay, period);
+        return Bukkit.getScheduler().runTaskTimerAsynchronously(instance, () -> ASYNC.execute(run), delay, period);
     }
 
     /**

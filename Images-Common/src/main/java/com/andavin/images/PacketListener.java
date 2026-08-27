@@ -72,6 +72,22 @@ public abstract class PacketListener<T, U> implements Versioned {
     protected abstract void handle(Player player, U packet);
 
     /**
+     * Handle a "get"/pick action of an image item from
+     * either a creative set-slot packet (older versions) or
+     * a pick-item-from-entity packet (1.21.3+).
+     * <p>
+     * This is a data-oriented bridge used by the generic PacketEvents
+     * handler so that different packet interception layers can funnel
+     * into the same per-version logic.
+     *
+     * @param player The player that performed the action.
+     * @param entityId The entity ID of the item frame if known, otherwise {@code -1}.
+     * @param mapId The map ID of the map item if known, otherwise {@code -1}.
+     */
+    protected void pickItem(Player player, int entityId, int mapId) {
+    }
+
+    /**
      * Get the {@link CustomImageSection} that has the
      * map ID from an {@link CustomImage}.
      *

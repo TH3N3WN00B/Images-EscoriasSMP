@@ -36,6 +36,7 @@ import net.minecraft.server.network.ServerCommonPacketListenerImpl;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.MapItem;
 import net.minecraft.world.level.saveddata.maps.MapId;
 import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
@@ -86,6 +87,41 @@ class PacketListener extends com.andavin.images.PacketListener<ServerboundIntera
                 call(player, entityId, InteractType.LEFT_CLICK, Hand.MAIN_HAND, listener);
             }
         });
+    }
+
+    @Override
+    protected void pickItem(Player player, int entityId, int mapId) {
+
+        if (mapId >= MapHelper.DEFAULT_STARTING_ID) {
+
+            CustomImageSection section = getImageSection(mapId);
+            if (section != null) {
+
+                ItemStack item = new ItemStack(Items.FILLED_MAP);
+                item.set(DataComponents.MAP_ID, new MapId(mapId));
+                Scheduler.sync(() -> {
+
+                    ServerLevel world = ((CraftPlayer) player).getHandle().serverLevel();
+                    MapItemSavedData map = MapItem.getSavedData(new MapId(mapId), world);
+                    if (map == null) {
+                        ItemStack newItem = MapItem.create(world, 0, 0, (byte) 3, false, false);
+                        MapId newMapId = newItem.get(DataComponents.MAP_ID);
+                        item.set(DataComponents.MAP_ID, newMapId); // Transfer the ID
+                        map = MapItem.getSavedData(newMapId, world);
+                    }
+
+                    if (map != null) {
+                        map.locked = true;
+                        map.scale = 3;
+                        map.trackingPosition = false;
+                        map.unlimitedTracking = true;
+                        map.colors = section.getPixels();
+                    } else {
+                        player.sendMessage("§cCannot create map. Unknown map data...");
+                    }
+                });
+            }
+        }
     }
 
     @Override

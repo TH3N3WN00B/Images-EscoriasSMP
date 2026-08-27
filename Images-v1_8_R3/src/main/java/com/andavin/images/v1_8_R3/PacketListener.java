@@ -61,6 +61,48 @@ class PacketListener extends com.andavin.images.PacketListener<PacketPlayInUseEn
     }
 
     @Override
+    protected void pickItem(Player player, int entityId, int mapId) {
+
+        if (mapId >= DEFAULT_STARTING_ID) {
+
+            CustomImageSection section = getImageSection(mapId);
+            if (section != null) {
+
+                ItemStack item = new ItemStack(Items.FILLED_MAP);
+                item.setData(mapId);
+                AtomicBoolean complete = new AtomicBoolean();
+                Scheduler.sync(() -> {
+
+                    try {
+                        WorldMap map = ((ItemWorldMap) item.getItem()).getSavedMap(item,
+                                ((CraftPlayer) player).getHandle().getWorld()); // Sets a new ID
+                        map.scale = 3;
+                        map.colors = section.getPixels();
+                    } finally {
+
+                        complete.set(true);
+                        synchronized (complete) {
+                            complete.notify();
+                        }
+                    }
+                });
+
+                synchronized (complete) {
+
+                    while (!complete.get()) {
+
+                        try {
+                            complete.wait();
+                        } catch (InterruptedException e) {
+                            Logger.severe(e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Override
     protected void handle(Player player, PacketPlayInSetCreativeSlot packet) {
 
         ItemStack item = packet.getItemStack();

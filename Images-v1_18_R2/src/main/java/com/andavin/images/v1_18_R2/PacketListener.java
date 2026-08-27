@@ -35,6 +35,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.MapItem;
 import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
 import net.minecraft.world.phys.Vec3;
@@ -82,6 +83,64 @@ class PacketListener extends com.andavin.images.PacketListener<ServerboundIntera
                 call(player, entityId, InteractType.LEFT_CLICK, Hand.MAIN_HAND, listener);
             }
         });
+    }
+
+    @Override
+    protected void pickItem(Player player, int entityId, int mapId) {
+
+        if (mapId >= MapHelper.DEFAULT_STARTING_ID) {
+
+            CustomImageSection section = getImageSection(mapId);
+            if (section != null) {
+
+                ItemStack item = new ItemStack(Items.FILLED_MAP);
+                CompoundTag tag = item.getOrCreateTag();
+                tag.putInt("map", mapId);
+                AtomicBoolean complete = new AtomicBoolean();
+                Scheduler.sync(() -> {
+
+                    try {
+
+                        ServerLevel world = ((CraftPlayer) player).getHandle().getLevel();
+                        MapItemSavedData map = MapItem.getSavedData(mapId, world);
+                        if (map == null) {
+                            ItemStack newItem = MapItem.create(world, 0, 0, (byte) 3, false, false);
+                            int newMapId = newItem.getOrCreateTag().getInt("map");
+                            tag.putInt("map", newMapId); // Transfer the ID
+                            map = MapItem.getSavedData(newMapId, world);
+                        }
+
+                        if (map != null) {
+                            map.locked = true;
+                            map.scale = 3;
+                            map.trackingPosition = false;
+                            map.unlimitedTracking = true;
+                            map.colors = section.getPixels();
+                        } else {
+                            player.sendMessage("§cCannot create map. Unknown map data...");
+                        }
+                    } finally {
+
+                        complete.set(true);
+                        synchronized (complete) {
+                            complete.notify();
+                        }
+                    }
+                });
+
+                synchronized (complete) {
+
+                    while (!complete.get()) {
+
+                        try {
+                            complete.wait();
+                        } catch (InterruptedException e) {
+                            Logger.severe(e);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     @Override

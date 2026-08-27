@@ -23,8 +23,16 @@
  */
 package com.andavin.util;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.function.Consumer;
+import java.util.logging.Handler;
 import java.util.logging.Level;
+import java.util.logging.LogRecord;
 
 /**
  * A custom singleton logger class that wraps a logger from
@@ -38,6 +46,9 @@ import java.util.logging.Level;
 public final class Logger {
 
     private static java.util.logging.Logger logger = java.util.logging.Logger.getLogger("");
+    private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("dd-MM-yy-HH-mm");
+    private static final SimpleDateFormat RECORD_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+    private static Handler fileHandler;
 
     /**
      * Initialize this logger with the main {@link java.util.logging.Logger}
@@ -48,6 +59,38 @@ public final class Logger {
      */
     public static void initialize(java.util.logging.Logger logger) throws IllegalStateException {
         Logger.logger = logger;
+    }
+
+    /**
+     * Begin writing {@link Level#WARNING warnings} and above to
+     * {@code logs/error-log-<stamp>.log} and {@link Level#SEVERE severe}
+     * errors to {@code logs/crash-log-<stamp>.log} within the
+     * plugin data folder.
+     *
+     * @param dataFolder The plugin data folder to create the logs folder in.
+     */
+    public static void initializeFileLogging(File dataFolder) {
+
+        if (fileHandler != null) {
+            return;
+        }
+
+        try {
+            File logs = new File(dataFolder, "logs");
+            if (!logs.exists() && !logs.mkdirs()) {
+                return;
+            }
+
+            String stamp = DATE_FORMAT.format(new Date());
+            Handler handler = new LogFileHandler(
+                    new File(logs, "error-log-" + stamp + ".log"),
+                    new File(logs, "crash-log-" + stamp + ".log"));
+            handler.setLevel(Level.WARNING);
+            logger.addHandler(handler);
+            fileHandler = handler;
+        } catch (IOException e) {
+            logger.log(Level.WARNING, "Failed to create log files", e);
+        }
     }
 
     /**
@@ -358,5 +401,65 @@ public final class Logger {
         }
 
         return builder.toString();
+    }
+
+    /**
+     * A {@link Handler} that writes log records to a file. Records that
+     * are {@link Level#WARNING warnings} or higher are written to the
+     * error log and records that are {@link Level#SEVERE severe} are
+     * additionally written to the crash log.
+     */
+    private static final class LogFileHandler extends Handler {
+
+        private final PrintWriter error;
+        private final PrintWriter crash;
+        private final int threshold = Level.SEVERE.intValue();
+
+        LogFileHandler(File error, File crash) throws IOException {
+            if (error.getParentFile() != null) {
+                error.getParentFile().mkdirs();
+            }
+            this.error = new PrintWriter(new FileWriter(error, true), true);
+            if (crash.getParentFile() != null) {
+                crash.getParentFile().mkdirs();
+            }
+            this.crash = new PrintWriter(new FileWriter(crash, true), true);
+        }
+
+        @Override
+        public synchronized void publish(LogRecord record) {
+
+            boolean severe = record.getLevel().intValue() >= this.threshold;
+            PrintWriter out = !severe && record.getLevel().intValue() < Level.WARNING.intValue() ?
+                    null : this.error;
+
+            String line = "[" + RECORD_FORMAT.format(new Date(record.getMillis())) + "] " +
+                    "[" + record.getLevel().getName() + "] " + Logger.format(record.getMessage(), record.getParameters());
+            if (out != null) {
+                out.println(line);
+                if (record.getThrown() != null) {
+                    record.getThrown().printStackTrace(out);
+                }
+            }
+            if (severe) {
+                this.crash.println(line);
+                if (record.getThrown() != null) {
+                    record.getThrown().printStackTrace(this.crash);
+                }
+                this.crash.flush();
+            }
+        }
+
+        @Override
+        public synchronized void flush() {
+            this.error.flush();
+            this.crash.flush();
+        }
+
+        @Override
+        public synchronized void close() throws SecurityException {
+            this.error.close();
+            this.crash.close();
+        }
     }
 }

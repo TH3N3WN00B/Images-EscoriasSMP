@@ -85,7 +85,7 @@ public class Images extends JavaPlugin implements Listener {
      */
 
     private static final CustomImage[] EMPTY_IMAGES_ARRAY = new CustomImage[0];
-    private boolean protocolLib;
+    private boolean packetEvents;
     private static Images instance;
     private static File imagesDirectory;
     private static DataManager dataManager;
@@ -99,6 +99,7 @@ public class Images extends JavaPlugin implements Listener {
         instance = this;
         Logger.initialize(this.getLogger());
         imagesDirectory = this.getDataFolder();
+        Logger.initializeFileLogging(imagesDirectory);
         PacketListener.getImages = () -> IMAGES;
         setFieldValue(Scheduler.class, null, "instance", this);
         setFieldValue(TimeoutMetadata.class, null, "instance", this);
@@ -112,17 +113,17 @@ public class Images extends JavaPlugin implements Listener {
         if (MinecraftVersion.isPaper()) {
             Logger.info("PaperMC server detected. Adjustments will be made to accommodate...");
         }
-        // After 1.21 ProtocolLib becomes a bit unreliable. I'm disabling it for now until we see a change in updates
-        // The built-in implementation seems to work fine so I don't find it worth it to deal with this at the moment
-        // NOTE: this is specifically for odd errors on startup like them seeming to have removed PacketAdapter
-        if (MinecraftVersion.lessThan(MinecraftVersion.v1_21)) {
-
-            Plugin protocolLib = Bukkit.getPluginManager().getPlugin("ProtocolLib");
-            if (protocolLib != null) { // ProtocolLib is present so use it for higher stability
-                this.protocolLib = true;
-                Logger.info("ProtocolLib detected. Enabling generic packet handling...");
-                ProtocolLibListener.register(this, LISTENER_TASKS, BRIDGE);
-            }
+        // Prefer PacketEvents if it's present since it works reliably on all
+        // Minecraft versions and doesn't require any version-specific code.
+        // Otherwise the built-in per-version packet interception is used.
+        Plugin packetEvents = Bukkit.getPluginManager().getPlugin("PacketEvents");
+        if (packetEvents == null) {
+            packetEvents = Bukkit.getPluginManager().getPlugin("packetevents");
+        }
+        if (packetEvents != null) { // PacketEvents is present so use it for generic packet handling
+            this.packetEvents = true;
+            Logger.info("PacketEvents detected. Enabling generic packet handling...");
+            PacketEventsListener.register(LISTENER_TASKS, BRIDGE);
         }
 
         FileConfiguration config = this.getConfig();
@@ -185,6 +186,11 @@ public class Images extends JavaPlugin implements Listener {
         }, 200, 30);
     }
 
+    @Override
+    public void onDisable() {
+        Scheduler.shutdown();
+    }
+
     @EventHandler
     // This is called directly after the PlayerConnection
     // is set as the packetListener for the player
@@ -193,7 +199,7 @@ public class Images extends JavaPlugin implements Listener {
         Player player = event.getPlayer();
         Location location = player.getLocation();
         Scheduler.laterAsync(() -> this.refreshImages(player, location), 20L);
-        if (protocolLib) {
+        if (packetEvents) {
             return;
         }
 

@@ -93,6 +93,42 @@ class PacketListener extends com.andavin.images.PacketListener<ServerboundIntera
     }
 
     @Override
+    protected void pickItem(Player player, int entityId, int mapId) {
+
+        CustomImageSection section = getImageSectionByEntityId(entityId);
+        if (section == null) {
+            return;
+        }
+
+        MapId sectionMapId = new MapId(section.getMapId());
+        ItemStack item = new ItemStack(Items.FILLED_MAP);
+        item.set(DataComponents.MAP_ID, sectionMapId);
+        Scheduler.sync(() -> {
+
+            ServerLevel world = ((CraftPlayer) player).getHandle().serverLevel();
+            MapItemSavedData map = MapItem.getSavedData(sectionMapId, world);
+            if (map == null) {
+                ItemStack newItem = MapItem.create(world, 0, 0, (byte) 3, false, false);
+                MapId newMapId = newItem.get(DataComponents.MAP_ID);
+                item.set(DataComponents.MAP_ID, newMapId); // Transfer the ID
+                map = MapItem.getSavedData(newMapId, world);
+            }
+
+            if (map != null) {
+                map.locked = true;
+                map.scale = 3;
+                map.trackingPosition = false;
+                map.unlimitedTracking = true;
+                map.colors = section.getPixels();
+            } else {
+                player.sendMessage("§cCannot create map. Unknown map data...");
+            }
+
+            tryPickItem(((CraftPlayer) player).getHandle().connection, item);
+        });
+    }
+
+    @Override
     protected void handle(Player player, ServerboundPickItemFromEntityPacket packet) {
 
         CustomImageSection section = getImageSectionByEntityId(packet.id());
