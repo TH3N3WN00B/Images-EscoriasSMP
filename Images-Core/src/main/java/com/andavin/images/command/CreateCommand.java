@@ -25,11 +25,15 @@ package com.andavin.images.command;
 
 import com.andavin.images.Images;
 import com.andavin.images.image.CustomImage;
+import com.andavin.images.image.ImageDecoder;
 import com.andavin.util.*;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.URI;
@@ -41,7 +45,6 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
-import javax.imageio.ImageIO;
 import org.apache.commons.lang.StringUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -99,7 +102,7 @@ final class CreateCommand extends BaseCommand implements Listener {
             nameSupplier = fileName::get;
         } else {
             File imageFile = Images.findImageFile(imageNameArg);
-            imageSupplier = () -> ImageIO.read(imageFile);
+            imageSupplier = () -> ImageDecoder.decode(imageFile);
             nameSupplier = imageFile::getName;
         }
 
@@ -283,11 +286,40 @@ final class CreateCommand extends BaseCommand implements Listener {
         }
     }
 
+    private static final int MAX_URL_BYTES = 100 * 1024 * 1024;
+
     private static BufferedImage readImageFromUrl(URL url) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setInstanceFollowRedirects(true);
+        connection.setConnectTimeout(10000);
+        connection.setReadTimeout(30000);
         connection.setRequestProperty("Referer", url.getProtocol() + "://" + url.getHost() + "/");
-        return ImageIO.read(connection.getInputStream());
+        int responseCode = connection.getResponseCode();
+        if (responseCode >= 400) {
+            throw new IOException("HTTP " + responseCode + " while downloading " + url);
+        }
+        // Download to a temporary file so that the format can be
+        // determined and decoded properly (including via ffmpeg)
+        String path = url.getPath();
+        String ext = path.length() == 0 ? "tmp" : path.substring(path.lastIndexOf('.') + 1);
+        File temp = File.createTempFile("images-", "." + ext);
+        temp.deleteOnExit();
+        try (InputStream in = connection.getInputStream();
+             OutputStream out = new FileOutputStream(temp)) {
+
+            byte[] buffer = new byte[8192];
+            int count;
+            long total = 0;
+            while ((count = in.read(buffer)) != -1) {
+                total += count;
+                if (total > MAX_URL_BYTES) {
+                    throw new IOException("URL image exceeds the maximum size of 100MB");
+                }
+                out.write(buffer, 0, count);
+            }
+        }
+
+        return ImageDecoder.decode(temp);
     }
 
     private interface ImageSupplier {

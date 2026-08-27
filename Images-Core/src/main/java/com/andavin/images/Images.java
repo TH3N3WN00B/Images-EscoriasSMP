@@ -30,6 +30,7 @@ import com.andavin.images.data.FileDataManager;
 import com.andavin.images.data.MySQLDataManager;
 import com.andavin.images.data.SQLiteDataManager;
 import com.andavin.images.image.CustomImage;
+import com.andavin.images.image.Ffmpeg;
 import com.andavin.util.*;
 import java.io.File;
 import java.util.*;
@@ -109,6 +110,12 @@ public class Images extends JavaPlugin implements Listener {
     public void onEnable() {
 
         this.saveDefaultConfig();
+        // If the config file is older than the bundled one, migrate it over
+        // while keeping any values that the administrator has modified
+        if (ConfigMigrator.migrate(new File(this.getDataFolder(), "config.yml"),
+                this.getResource("config.yml"))) {
+            this.reloadConfig();
+        }
         Bukkit.getPluginManager().registerEvents(this, this);
         if (MinecraftVersion.isPaper()) {
             Logger.info("PaperMC server detected. Adjustments will be made to accommodate...");
@@ -130,6 +137,14 @@ public class Images extends JavaPlugin implements Listener {
         MapHelper.invisible = config.getBoolean("invisible-frames", true);
         MapHelper.showDistance = config.getInt("show-distance", 64);
         MapHelper.hideDistance = config.getInt("hide-distance", 128);
+        // Compress images at rest with zstd (lossless) so that the
+        // database/file storage is smaller. Old data remains readable.
+        Zstd.setEnabled(config.getBoolean("image-storage.compression", true));
+        // Decode formats that require a static ffmpeg binary
+        // (JPEG XL, WebM) as well as a fallback for anything else
+        Ffmpeg.configure(imagesDirectory, config.getBoolean("ffmpeg.enabled", true),
+                config.getString("ffmpeg.path", ""),
+                config.getString("ffmpeg.download-url", Ffmpeg.DEFAULT_DOWNLOAD_URL));
         if (config.getBoolean("update-check", true)) {
             Updater.start(config.getInt("update-interval-minutes", 360));
         }

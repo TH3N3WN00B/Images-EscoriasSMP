@@ -5,7 +5,7 @@
     <parent>
         <artifactId>images-parent</artifactId>
         <groupId>com.andavin</groupId>
-        <version>2.6.2</version>
+        <version>2.6.3</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
@@ -29,6 +29,16 @@
             <artifactId>netty-all</artifactId>
             <version>4.1.137.Final</version>
             <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.github.luben</groupId>
+            <artifactId>zstd-jni</artifactId>
+            <version>1.5.7-13</version>
+        </dependency>
+        <dependency>
+            <groupId>com.twelvemonkeys.imageio</groupId>
+            <artifactId>imageio-webp</artifactId>
+            <version>3.14.0</version>
         </dependency>
     </dependencies>
 

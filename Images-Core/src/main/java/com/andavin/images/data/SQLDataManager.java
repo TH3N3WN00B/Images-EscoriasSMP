@@ -26,6 +26,7 @@ package com.andavin.images.data;
 import com.andavin.images.image.CustomImage;
 import com.andavin.reflect.exception.UncheckedClassNotFoundException;
 import com.andavin.util.Logger;
+import com.andavin.util.Zstd;
 
 import java.io.*;
 import java.sql.*;
@@ -165,7 +166,16 @@ abstract class SQLDataManager implements DataManager {
 
     private CustomImage toImage(byte[] bytes) {
 
-        ByteArrayInputStream byteStream = new ByteArrayInputStream(bytes);
+        byte[] data;
+        try {
+            // Data written by older versions was uncompressed so
+            // this is a no-op unless the blob has the magic header
+            data = Zstd.decompress(bytes);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+
+        ByteArrayInputStream byteStream = new ByteArrayInputStream(data);
         try (ObjectInputStream stream = new ObjectInputStream(byteStream)) {
             return (CustomImage) stream.readObject();
         } catch (IOException e) {
@@ -184,6 +194,11 @@ abstract class SQLDataManager implements DataManager {
             throw new UncheckedIOException(e);
         }
 
-        return byteStream.toByteArray();
+        byte[] bytes = byteStream.toByteArray();
+        try {
+            return Zstd.compress(bytes);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 }

@@ -4,6 +4,13 @@
 # +---------------------------------------------------------+ #
 ###############################################################
 
+# Version of this configuration file. When the plugin is updated
+# and this number is lower than the one bundled with the new version,
+# the config is automatically migrated to the latest version while
+# keeping any values that you have modified. A backup of the old file
+# is created at 'config.yml.bak' just in case.
+config-version: 1
+
 # Item frames and maps will appear invisible behind
 # the image giving the effect that the pixels are
 # floating without anything behind them while also
@@ -51,3 +58,22 @@ update-check: true
 
 # How often to check for updates, in minutes
 update-interval-minutes: 360
+
+# Formats that require a static ffmpeg binary to decode (JPEG XL,
+# WebM) and fallback for any image that the Java ImageIO cannot
+# read. The binary is downloaded automatically once per platform
+# and cached in the '.ffmpeg' folder under the plugin data directory.
+ffmpeg:
+  # If ffmpeg decoding and downloading is enabled at all
+  enabled: true
+  # The path to a custom ffmpeg binary. If empty, a static binary
+  # is downloaded automatically on first use and cached.
+  path: ""
+  # The base URL to download the static ffmpeg binary from.
+  # (the '{filename}' token is replaced with the platform file name)
+  download-url: https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/{filename}
+
+# Lossless zstd compression of stored images (database/file).
+# This only affects newly saved data; existing data remains readable.
+image-storage:
+  compression: true

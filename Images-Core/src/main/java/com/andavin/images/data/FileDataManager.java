@@ -25,6 +25,7 @@ package com.andavin.images.data;
 
 import com.andavin.images.image.CustomImage;
 import com.andavin.reflect.exception.UncheckedClassNotFoundException;
+import com.andavin.util.Zstd;
 
 import java.io.*;
 import java.nio.file.Files;
@@ -62,6 +63,9 @@ public class FileDataManager implements DataManager {
         byte[] data;
         try {
             data = Files.readAllBytes(this.dataFile.toPath());
+            // Data written before this update was uncompressed so
+            // this is a no-op unless the file has the magic header
+            data = Zstd.decompress(data);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -104,7 +108,9 @@ public class FileDataManager implements DataManager {
         }
 
         File dataFile = new File(this.dataFile.getAbsolutePath() + ".tmp");
-        try (ObjectOutputStream stream = new ObjectOutputStream(new FileOutputStream(dataFile))) {
+        try (OutputStream fileOut = new FileOutputStream(dataFile);
+             OutputStream out = Zstd.wrap(fileOut);
+             ObjectOutputStream stream = new ObjectOutputStream(out)) {
 
             stream.writeInt(images.size());
             for (CustomImage image : images) {
