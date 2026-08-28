@@ -66,7 +66,14 @@ public final class ImageDecoder {
         }
 
         if (image == null) {
-            image = Ffmpeg.decode(file);
+            // Losslessly re-compress the source with the command for its
+            // format (if enabled) and decode the optimized copy instead
+            File optimized = Ffmpeg.encodeLossless(file);
+            if (optimized != null && !optimized.equals(file)) {
+                image = decode(optimized);
+            } else {
+                image = Ffmpeg.decode(file);
+            }
         }
 
         if (image == null) {

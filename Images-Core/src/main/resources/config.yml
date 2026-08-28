@@ -9,7 +9,7 @@
 # the config is automatically migrated to the latest version while
 # keeping any values that you have modified. A backup of the old file
 # is created at 'config.yml.bak' just in case.
-config-version: 1
+config-version: 2
 
 # Item frames and maps will appear invisible behind
 # the image giving the effect that the pixels are
@@ -62,7 +62,8 @@ update-interval-minutes: 360
 # Formats that require a static ffmpeg binary to decode (JPEG XL,
 # WebM) and fallback for any image that the Java ImageIO cannot
 # read. The binary is downloaded automatically once per platform
-# and cached in the '.ffmpeg' folder under the plugin data directory.
+# (BtbN FFmpeg-Builds, which include JPEG XL) and cached in the
+# '.ffmpeg' folder under the plugin data directory.
 ffmpeg:
   # If ffmpeg decoding and downloading is enabled at all
   enabled: true
@@ -70,8 +71,17 @@ ffmpeg:
   # is downloaded automatically on first use and cached.
   path: ""
   # The base URL to download the static ffmpeg binary from.
-  # (the '{filename}' token is replaced with the platform file name)
-  download-url: https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/{filename}
+  # (the '{filename}' token is replaced with the archive name)
+  download-url: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/{filename}
+  # Losslessly re-compress image sources (PNG/WebP/JPEG XL) when they
+  # are read for image creation using the command for their format.
+  # The optimized copy is cached in the '.imgcache' folder keyed by
+  # content, so re-using the same source costs nothing. Hardware
+  # acceleration is only attempted when the device is actually mounted.
+  recompress: true
+  # Preferred re-compression format: AUTO, PNG, WEBP or JXL.
+  # AUTO picks the best lossless encoder available (JXL > WebP > PNG).
+  recompress-format: AUTO
 
 # Lossless zstd compression of stored images (database/file).
 # This only affects newly saved data; existing data remains readable.

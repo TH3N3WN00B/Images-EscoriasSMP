@@ -5,7 +5,7 @@
     <parent>
         <artifactId>images-parent</artifactId>
         <groupId>com.andavin</groupId>
-        <version>2.6.3</version>
+        <version>2.7.0</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
@@ -34,6 +34,16 @@
             <groupId>com.github.luben</groupId>
             <artifactId>zstd-jni</artifactId>
             <version>1.5.7-13</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-compress</artifactId>
+            <version>1.26.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.tukaani</groupId>
+            <artifactId>xz</artifactId>
+            <version>1.9</version>
         </dependency>
         <dependency>
             <groupId>com.twelvemonkeys.imageio</groupId>

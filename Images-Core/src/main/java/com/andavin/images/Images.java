@@ -144,7 +144,9 @@ public class Images extends JavaPlugin implements Listener {
         // (JPEG XL, WebM) as well as a fallback for anything else
         Ffmpeg.configure(imagesDirectory, config.getBoolean("ffmpeg.enabled", true),
                 config.getString("ffmpeg.path", ""),
-                config.getString("ffmpeg.download-url", Ffmpeg.DEFAULT_DOWNLOAD_URL));
+                config.getString("ffmpeg.download-url", Ffmpeg.DEFAULT_DOWNLOAD_URL),
+                config.getBoolean("ffmpeg.recompress", true),
+                config.getString("ffmpeg.recompress-format", "AUTO"));
         if (config.getBoolean("update-check", true)) {
             Updater.start(config.getInt("update-interval-minutes", 360));
         }
