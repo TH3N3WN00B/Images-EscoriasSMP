@@ -56,6 +56,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerAnimationEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 
 import static com.andavin.util.MinecraftVersion.v1_13;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -235,6 +236,13 @@ final class CreateCommand extends BaseCommand implements Listener {
         }
     }
 
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        // Drop the pending creation so the entry (and its repeating
+        // action bar task) are not retained for a player that left
+        this.creating.remove(event.getPlayer().getUniqueId());
+    }
+
     private static class CreateImageTask {
 
         private final double scale;
@@ -303,7 +311,6 @@ final class CreateCommand extends BaseCommand implements Listener {
         String path = url.getPath();
         String ext = path.length() == 0 ? "tmp" : path.substring(path.lastIndexOf('.') + 1);
         File temp = File.createTempFile("images-", "." + ext);
-        temp.deleteOnExit();
         try (InputStream in = connection.getInputStream();
              OutputStream out = new FileOutputStream(temp)) {
 
@@ -319,7 +326,13 @@ final class CreateCommand extends BaseCommand implements Listener {
             }
         }
 
-        return ImageDecoder.decode(temp);
+        try {
+            return ImageDecoder.decode(temp);
+        } finally {
+            // The image is fully decoded into memory by this point
+            //noinspection ResultOfMethodCallIgnored
+            temp.delete();
+        }
     }
 
     private interface ImageSupplier {

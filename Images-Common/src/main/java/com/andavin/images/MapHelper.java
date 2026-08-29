@@ -27,8 +27,10 @@ import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Player;
+import org.bukkit.map.MapPalette;
 import org.bukkit.map.MapView;
 
+import java.awt.Color;
 import java.awt.image.BufferedImage;
 
 /**
@@ -41,6 +43,32 @@ public abstract class MapHelper implements Versioned {
     public static int showDistance = 64;
     public static int hideDistance = 128;
     private static final MapHelper BRIDGE = Versioned.getInstance(MapHelper.class);
+
+    /**
+     * The precomputed map palette lookup table. Colors are quantified
+     * to 5 bits per channel ({@code 32 * 32 * 32} entries) and each
+     * entry holds the {@link MapPalette#matchColor(Color) matched}
+     * palette index so that pixel conversion is a single table access
+     * instead of allocating a {@link Color} and scanning the whole
+     * palette for every pixel.
+     */
+    private static final byte[] PALETTE = buildPalette();
+
+    private static byte[] buildPalette() {
+
+        byte[] palette = new byte[1 << 15];
+        for (int b = 0; b < 32; b++) {
+            for (int g = 0; g < 32; g++) {
+                for (int r = 0; r < 32; r++) {
+                    // Same palette the server has, so results are version correct
+                    palette[(r << 10) | (g << 5) | b] =
+                            MapPalette.matchColor(new Color(r << 3, g << 3, b << 3));
+                }
+            }
+        }
+
+        return palette;
+    }
 
     /**
      * Get the {@link MapView} for the given ID.
@@ -99,6 +127,36 @@ public abstract class MapHelper implements Versioned {
      */
     public static byte[] getPixels(BufferedImage image) {
         return BRIDGE.createPixels(image);
+    }
+
+    /**
+     * Convert the given full quality image directly into the bytes used to
+     * render it on a map without allocating a {@link Color} per pixel or
+     * scanning the palette per pixel. Pixels with an alpha below 128 are
+     * transparent on maps and are short-circuited to the transparent index.
+     *
+     * @param image The image to get the pixels for.
+     * @return The pixels for the image.
+     */
+    public static byte[] toMapPixels(BufferedImage image) {
+
+        int pixelCount = image.getWidth() * image.getHeight();
+        int[] pixels = new int[pixelCount];
+        image.getRGB(0, 0, image.getWidth(), image.getHeight(), pixels, 0, image.getWidth());
+
+        byte[] colors = new byte[pixelCount];
+        for (int i = 0; i < pixelCount; i++) {
+
+            int rgb = pixels[i];
+            if ((rgb >>> 24) < 128) {
+                colors[i] = 0; // MapPalette.TRANSPARENT
+            } else {
+                int r = (rgb >>> 19) & 0x1F, g = (rgb >>> 11) & 0x1F, b = (rgb >>> 3) & 0x1F;
+                colors[i] = PALETTE[(r << 10) | (g << 5) | b];
+            }
+        }
+
+        return colors;
     }
 
     /**

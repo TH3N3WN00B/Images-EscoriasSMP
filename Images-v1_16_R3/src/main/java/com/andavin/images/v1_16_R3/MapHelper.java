@@ -100,15 +100,6 @@ class MapHelper extends com.andavin.images.MapHelper {
     @Override
     protected byte[] createPixels(BufferedImage image) {
 
-        int pixelCount = image.getWidth() * image.getHeight();
-        int[] pixels = new int[pixelCount];
-        image.getRGB(0, 0, image.getWidth(), image.getHeight(), pixels, 0, image.getWidth());
-
-        byte[] colors = new byte[pixelCount];
-        for (int i = 0; i < pixelCount; i++) {
-            colors[i] = MapPalette.matchColor(new Color(pixels[i], true));
-        }
-
-        return colors;
+        return toMapPixels(image);
     }
 }

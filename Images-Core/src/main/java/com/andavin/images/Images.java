@@ -34,6 +34,7 @@ import com.andavin.images.image.Ffmpeg;
 import com.andavin.util.*;
 import java.io.File;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 import org.apache.commons.lang.StringUtils;
@@ -91,7 +92,9 @@ public class Images extends JavaPlugin implements Listener {
     private static File imagesDirectory;
     private static DataManager dataManager;
     private static final List<CustomImage> IMAGES = new ArrayList<>();
-    private static final Map<UUID, Long> LAST_MOVE_TIMES = new HashMap<>();
+    // Thread safe: written on the main thread (moves) and iterated and written
+    // to from the asynchronous idle-refresh task
+    private static final Map<UUID, Long> LAST_MOVE_TIMES = new ConcurrentHashMap<>();
     private static final PacketListener BRIDGE = Versioned.getInstance(PacketListener.class);
     private static final Map<UUID, ImageListener> LISTENER_TASKS = new HashMap<>(4);
 
@@ -186,22 +189,22 @@ public class Images extends JavaPlugin implements Listener {
             CommandRegistry.registerCommands();
         }, 40L);
 
+        // Refresh each player once after they have been idle for 2.5 seconds
+        // and remove their entry so the map never grows with the player count
         Scheduler.repeatAsync(() -> {
 
-            try {
+            long now = System.currentTimeMillis();
+            for (Iterator<Map.Entry<UUID, Long>> it = LAST_MOVE_TIMES.entrySet().iterator(); it.hasNext(); ) {
 
-                long now = System.currentTimeMillis();
-                LAST_MOVE_TIMES.forEach((uuid, time) -> {
+                Map.Entry<UUID, Long> entry = it.next();
+                if (now - entry.getValue() > 2500) {
 
-                    if (now - time > 2500) { // More than 2.5 seconds
-
-                        Player player = Bukkit.getPlayer(uuid);
-                        if (player != null) {
-                            refreshImages(player, player.getLocation());
-                        }
+                    it.remove();
+                    Player player = Bukkit.getPlayer(entry.getKey());
+                    if (player != null) {
+                        refreshImages(player, player.getLocation());
                     }
-                });
-            } catch (ConcurrentModificationException ignored) {
+                }
             }
         }, 200, 30);
     }
@@ -210,6 +213,13 @@ public class Images extends JavaPlugin implements Listener {
     public void onDisable() {
         Updater.apply(getFile());
         Scheduler.shutdown();
+        // Release the static state so a plugin reload (i.e. /reload) does not
+        // retain images or stale player entries
+        synchronized (IMAGES) {
+            IMAGES.clear();
+        }
+        LAST_MOVE_TIMES.clear();
+        LISTENER_TASKS.clear();
     }
 
     @EventHandler
@@ -247,6 +257,9 @@ public class Images extends JavaPlugin implements Listener {
     public void onQuit(PlayerQuitEvent event) {
 
         Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+        LAST_MOVE_TIMES.remove(uuid);
+        LISTENER_TASKS.remove(uuid);
         Scheduler.async(() -> {
 
             CustomImage[] images;
