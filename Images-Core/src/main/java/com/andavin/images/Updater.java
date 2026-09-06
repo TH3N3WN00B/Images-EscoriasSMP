@@ -170,9 +170,9 @@ public final class Updater {
                 }
 
                 List<String> urls = new ArrayList<>(4);
-                do {
+                while (asset.find()) {
                     urls.add(asset.group(1));
-                } while (asset.find());
+                }
 
                 return new Latest(tag.group(1), urls);
             }

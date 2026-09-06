@@ -43,7 +43,7 @@ Este proyecto se distribuye bajo la licencia **MIT**.
 ## Instalación
 
 1. Descarga el JAR de **tu versión de Minecraft** desde la página de releases:
-   `images-escoriassmp-<version-minecraft>-2.7.1.jar`.
+   `images-escoriassmp-<version-minecraft>-2.7.2.jar`.
 2. Colócalo en la carpeta `plugins` de tu servidor.
 3. Reinicia el servidor. La primera vez generará la configuración en
    `plugins/Imagenes-EscoriasSMP/config.yml`.
@@ -120,6 +120,9 @@ El plugin original es **Custom Images** de **Andavin**. Esta bifurcación añade
   asociadas a UUID de jugadores (listas de movimiento, tareas de creación y oyentes se limpian
   al salir y en `/reload`) y conversión de píxeles a la paleta del mapa mediante tabla
   precomputada de cuantización 5-bit (~100× más rápida por píxel, sin asignaciones por píxel).
+- **Corrección del comprobador de actualizaciones** (2.7.2): ya no lanza una excepción cuando
+  la respuesta de GitHub no incluye ningún asset `.jar`, y la coincidencia de assets se busca
+  correctamente antes de leerlos.
 - **CI y versiones modernas**: build con JDK 25 y GitHub Actions actualizado, generando un JAR
   por versión de Minecraft (1.8.8 → 26.2).
 
