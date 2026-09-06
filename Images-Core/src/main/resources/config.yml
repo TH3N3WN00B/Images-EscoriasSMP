@@ -9,7 +9,7 @@
 # the config is automatically migrated to the latest version while
 # keeping any values that you have modified. A backup of the old file
 # is created at 'config.yml.bak' just in case.
-config-version: 2
+config-version: 3
 
 # Item frames and maps will appear invisible behind
 # the image giving the effect that the pixels are
@@ -23,6 +23,13 @@ show-distance: 64
 
 # Image sections beyond this range will be hidden from players
 hide-distance: 128
+
+# Maximum number of 128x128-pixel sections a single image may span
+# (each section is a 128x128 block wall). Very large images use a lot of
+# disk space and are sent to nearby players as one 16 KB map packet per
+# section, so sources larger than this are scaled down automatically when
+# the image is created. A value of 0 disables the limit.
+max-sections: 64
 
 database:
   # The type of database that can be used

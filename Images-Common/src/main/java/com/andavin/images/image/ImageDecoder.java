@@ -45,6 +45,12 @@ public final class ImageDecoder {
 
     /**
      * Decode the given image file into a {@link BufferedImage}.
+     * <p>
+     * The source is always losslessly re-compressed with ffmpeg first
+     * (when it is enabled and a suitable encoder is available) and the
+     * optimized copy is decoded instead, so re-using a source never
+     * decodes a larger file than it has to. If the source cannot be
+     * improved it is decoded as-is.
      *
      * @param file The file to decode.
      * @return The decoded image.
@@ -57,23 +63,21 @@ public final class ImageDecoder {
             throw new IOException("Image file does not exist: " + file);
         }
 
+        // Losslessly re-compress the source with the command for its
+        // format (if enabled) and decode the optimized copy instead
+        File optimized = Ffmpeg.encodeLossless(file);
+        File input = optimized != null && !optimized.equals(file) ? optimized : file;
+
         BufferedImage image;
         try {
-            image = ImageIO.read(file);
+            image = ImageIO.read(input);
         } catch (IOException e) {
             image = null;
-            Logger.debug(e, "ImageIO failed to read {}", file.getName());
+            Logger.debug(e, "ImageIO failed to read {}", input.getName());
         }
 
         if (image == null) {
-            // Losslessly re-compress the source with the command for its
-            // format (if enabled) and decode the optimized copy instead
-            File optimized = Ffmpeg.encodeLossless(file);
-            if (optimized != null && !optimized.equals(file)) {
-                image = decode(optimized);
-            } else {
-                image = Ffmpeg.decode(file);
-            }
+            image = Ffmpeg.decode(input);
         }
 
         if (image == null) {

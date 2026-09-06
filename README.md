@@ -43,7 +43,7 @@ Este proyecto se distribuye bajo la licencia **MIT**.
 ## Instalación
 
 1. Descarga el JAR de **tu versión de Minecraft** desde la página de releases:
-   `images-escoriassmp-<version-minecraft>-2.7.2.jar`.
+   `images-escoriassmp-<version-minecraft>-2.7.3.jar`.
 2. Colócalo en la carpeta `plugins` de tu servidor.
 3. Reinicia el servidor. La primera vez generará la configuración en
    `plugins/Imagenes-EscoriasSMP/config.yml`.
@@ -90,9 +90,10 @@ Todos los comandos cuelgan de `/image` (aliases: `/images`, `/img`, `/customimag
 
 | Opción | Por defecto | Descripción |
 |---|---|---|
-| `config-version` | `2` | Versión del fichero; se migra solo (con copia en `config.yml.bak`). |
+| `config-version` | `3` | Versión del fichero; se migra solo (con copia en `config.yml.bak`). |
 | `invisible-frames` | `true` | Marcos de ítem invisibles tras la imagen (1.16+). |
 | `show-distance` / `hide-distance` | `64` / `128` | Rango para mostrar/ocultar secciones de imagen. |
+| `max-sections` | `64` | Máximo de secciones 128×128 de una imagen (≈8×8 bloques); fuentes mayores se escalan hacia abajo al crear. `0` desactiva el límite. |
 | `database.type` | `SQLITE` | `MYSQL`, `SQLITE` o `FILE`. |
 | `permissions.creator-restricted` | `false` | Solo el creador puede modificar la imagen. |
 | `update-check` / `update-interval-minutes` | `true` / `360` | Comprobación de actualizaciones. |
@@ -123,6 +124,13 @@ El plugin original es **Custom Images** de **Andavin**. Esta bifurcación añade
 - **Corrección del comprobador de actualizaciones** (2.7.2): ya no lanza una excepción cuando
   la respuesta de GitHub no incluye ningún asset `.jar`, y la coincidencia de assets se busca
   correctamente antes de leerlos.
+- **Recompresión ffmpeg siempre en decodificación** (2.7.3): al decodificar, la imagen se
+  re-comprime sin pérdida (JPEG XL > WebP > PNG) de forma incondicional y se decodifica la copia
+  optimizada, garantizando el mismo rendimiento y compatibilidad donde ImageIO falla.
+- **Límite de secciones por imagen** (2.7.3): nueva opción `max-sections` (por defecto 64) que
+  limita el tamaño máximo de una imagen creada desde un comando, reduciendo la dimensión mayor
+  hasta cumplir el límite. `config.yml` se migra automáticamente a la versión 3 conservando los
+  valores modificados.
 - **CI y versiones modernas**: build con JDK 25 y GitHub Actions actualizado, generando un JAR
   por versión de Minecraft (1.8.8 → 26.2).
 

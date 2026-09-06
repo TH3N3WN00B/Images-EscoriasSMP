@@ -69,7 +69,18 @@ import static com.google.common.base.Preconditions.checkNotNull;
 final class CreateCommand extends BaseCommand implements Listener {
 
     private static final Pattern URL_TEST = Pattern.compile("^(https?|ftps?)://[-a-zA-Z0-9+&@#/%?=~_|!:,.;]*[-a-zA-Z0-9+&@#/%=~_|]");
+    private static final int SECTION_PIXELS = 128;
     private final Map<UUID, CreateImageTask> creating = new HashMap<>();
+
+    /**
+     * The maximum number of 128x128-pixel sections a single image may span.
+     * Sources larger than this are scaled down automatically at creation so
+     * that a wall image cannot blow up the storage or send an excessive
+     * number of map packets (each section is stored as 16 KB and sent as a
+     * 128x128 map to every nearby player). Values of 0 or less disable the
+     * limit. Written from the config when the plugin enables.
+     */
+    public static volatile int maxSections = 64;
 
     CreateCommand() {
         super("create", "images.command.create");
@@ -77,6 +88,7 @@ final class CreateCommand extends BaseCommand implements Listener {
         this.setMinimumArgs(1);
         this.setUsage("/image create <image name | URL> [scale percent]");
         this.setDesc("Create and begin pasting a new custom image");
+        maxSections = Images.getInstance().getConfig().getInt("max-sections", 64);
         Bukkit.getPluginManager().registerEvents(this, Images.getInstance());
     }
 
@@ -269,28 +281,61 @@ final class CreateCommand extends BaseCommand implements Listener {
             try {
 
                 BufferedImage image = imageSupplier.get();
-                if (this.scale == 1) {
-                    return image;
+                if (image == null) {
+                    return null;
                 }
 
-                Image scaled = image.getScaledInstance(
-                        (int) Math.ceil(image.getWidth() * this.scale),
-                        (int) Math.ceil(image.getHeight() * this.scale),
-                        Image.SCALE_SMOOTH
-                );
+                if (this.scale != 1) {
+                    image = scale(image,
+                            (int) Math.ceil(image.getWidth() * this.scale),
+                            (int) Math.ceil(image.getHeight() * this.scale));
+                }
 
-                BufferedImage other = new BufferedImage(scaled.getWidth(null),
-                        scaled.getHeight(null), BufferedImage.TYPE_INT_ARGB);
-                // Copy the image over to the new instance
-                Graphics2D graphics = other.createGraphics();
-                graphics.drawImage(scaled, 0, 0, null);
-                graphics.dispose();
-                return other;
+                // Bound the created image so that it cannot span more
+                // sections than allowed. Sections are stored as 16 KB each
+                // and every section is sent as a 128x128 map packet to
+                // nearby players, so this also limits the disk usage and
+                // bandwidth caused by very large wall images.
+                int max = CreateCommand.maxSections;
+                if (max > 0) {
+
+                    int width = image.getWidth(), height = image.getHeight();
+                    if (sections(width, height) > max) {
+
+                        while (sections(width, height) > max) {
+                            if (width > height) {
+                                width = Math.max(SECTION_PIXELS, width - SECTION_PIXELS);
+                            } else {
+                                height = Math.max(SECTION_PIXELS, height - SECTION_PIXELS);
+                            }
+                        }
+
+                        image = scale(image, width, height);
+                    }
+                }
+
+                return image;
 
             } catch (Exception e) {
                 Logger.debug(e);
                 return null;
             }
+        }
+
+        private static int sections(int width, int height) {
+            return Math.max(width / SECTION_PIXELS, 1) * Math.max(height / SECTION_PIXELS, 1);
+        }
+
+        private static BufferedImage scale(BufferedImage image, int width, int height) {
+
+            Image scaled = image.getScaledInstance(width, height, Image.SCALE_SMOOTH);
+            BufferedImage other = new BufferedImage(scaled.getWidth(null),
+                    scaled.getHeight(null), BufferedImage.TYPE_INT_ARGB);
+            // Copy the image over to the new instance
+            Graphics2D graphics = other.createGraphics();
+            graphics.drawImage(scaled, 0, 0, null);
+            graphics.dispose();
+            return other;
         }
     }
 
