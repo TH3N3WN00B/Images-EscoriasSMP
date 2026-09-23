@@ -22,6 +22,7 @@
  * SOFTWARE.
  */
 package com.andavin.images.v1_21_R5;
+import io.netty.channel.ChannelPipeline;
 
 import com.andavin.images.image.CustomImageSection;
 import com.andavin.reflect.FieldMatcher;
@@ -39,9 +40,12 @@ import net.minecraft.server.network.ServerCommonPacketListenerImpl;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.decoration.ItemFrame;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.MapItem;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.saveddata.maps.MapId;
 import net.minecraft.world.level.saveddata.maps.MapItemSavedData;
 import net.minecraft.world.phys.Vec3;
@@ -80,7 +84,11 @@ class PacketListener extends com.andavin.images.PacketListener<ServerboundIntera
     protected void setEntityListener(Player player, ImageListener listener) {
         ServerGamePacketListenerImpl connection = ((CraftPlayer) player).getHandle().connection;
         Connection internal = getFieldValue(CONNECTION, connection);
-        internal.channel.pipeline().addBefore("packet_handler", "image_handler",
+        ChannelPipeline pipeline = internal.channel.pipeline();
+        if (pipeline.get("image_handler") != null) {
+            pipeline.remove("image_handler");
+        }
+        pipeline.addBefore("packet_handler", "image_handler",
                 new PlayerConnectionProxy(connection, listener, this));
     }
 
@@ -139,7 +147,7 @@ class PacketListener extends com.andavin.images.PacketListener<ServerboundIntera
                 player.sendMessage("§cCannot create map. Unknown map data...");
             }
 
-            tryPickItem(((CraftPlayer) player).getHandle().connection, item);
+            tryPickItem(((CraftPlayer) player).getHandle().connection, item, world);
         });
     }
 
@@ -175,11 +183,18 @@ class PacketListener extends com.andavin.images.PacketListener<ServerboundIntera
                 player.sendMessage("§cCannot create map. Unknown map data...");
             }
 
-            tryPickItem(((CraftPlayer) player).getHandle().connection, item);
+            tryPickItem(((CraftPlayer) player).getHandle().connection, item, world);
         });
     }
 
-    private static void tryPickItem(ServerGamePacketListenerImpl connection, ItemStack item) { // Access to the private method
-        invokeMethod(TRY_PICK_ITEM, connection, item);
+    private static void tryPickItem(ServerGamePacketListenerImpl connection, ItemStack item, Level level) {
+        if (TRY_PICK_ITEM.getParameterCount() == 1) {
+            invokeMethod(TRY_PICK_ITEM, connection, item);
+        } else {
+            // NOTE: create an entity to prevent an NPE, but isn't the real entity
+            // This may cause some plugins a minor confusion, but I think it'll be okay
+            ItemFrame frame = new ItemFrame(EntityType.ITEM_FRAME, level);
+            invokeMethod(TRY_PICK_ITEM, connection, item, null, frame, true);
+        }
     }
 }

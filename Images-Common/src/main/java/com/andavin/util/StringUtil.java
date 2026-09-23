@@ -194,7 +194,9 @@ public final class StringUtil {
         }
 
         if (title.length() >= 32) {
-            return title.substring(32);
+            // Keep the first 32 characters so the title fits on screen
+            // instead of (incorrectly) returning only its tail.
+            return title.substring(0, 32);
         }
 
         int length = StringUtil.getLength(title);

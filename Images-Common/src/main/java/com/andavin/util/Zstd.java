@@ -45,6 +45,14 @@ import java.io.OutputStream;
 public final class Zstd {
 
     private static final byte[] MAGIC = {'I', 'M', 'Z', 'C'};
+    /*
+     * The maximum size, in bytes, of data that decompression will produce.
+     * This is a safety guard against a malformed or malicious compressed
+     * blob that expands to an absurd size and OOMs the server. Legitimate
+     * image data is (at most) on the order of a few megabytes, so 64 MiB
+     * leaves ample headroom while bounding the damage.
+     */
+    public static final int MAX_DECOMPRESSED_SIZE = 1 << 26; // 64 MiB
     private static final int DEFAULT_LEVEL = 3;
     private static int level = DEFAULT_LEVEL;
     private static boolean enabled = true;
@@ -163,11 +171,21 @@ public final class Zstd {
 
         try (ZstdInputStream stream = new ZstdInputStream(new ByteArrayInputStream(
                 data, MAGIC.length, data.length - MAGIC.length))) {
-            ByteArrayOutputStream byteStream = new ByteArrayOutputStream(data.length * 4);
+            /*
+             * Use a bounded initial capacity (guarding the int overflow in
+             * data.length * 4 for very large inputs) and enforce a hard cap
+             * on the output to avoid decompression bombs.
+             */
+            int initial = (int) Math.min((long) data.length * 4, MAX_DECOMPRESSED_SIZE);
+            ByteArrayOutputStream byteStream = new ByteArrayOutputStream(initial);
             byte[] buffer = new byte[8192];
             int count;
             while ((count = stream.read(buffer)) != -1) {
                 byteStream.write(buffer, 0, count);
+                if (byteStream.size() > MAX_DECOMPRESSED_SIZE) {
+                    throw new IOException("Decompressed data exceeds the maximum"
+                            + " allowed size of " + MAX_DECOMPRESSED_SIZE + " bytes");
+                }
             }
             return byteStream.toByteArray();
         }

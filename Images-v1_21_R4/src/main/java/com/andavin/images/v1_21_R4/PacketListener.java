@@ -22,6 +22,7 @@
  * SOFTWARE.
  */
 package com.andavin.images.v1_21_R4;
+import io.netty.channel.ChannelPipeline;
 
 import com.andavin.images.image.CustomImageSection;
 import com.andavin.reflect.FieldMatcher;
@@ -82,7 +83,11 @@ class PacketListener extends com.andavin.images.PacketListener<ServerboundIntera
     protected void setEntityListener(Player player, ImageListener listener) {
         ServerGamePacketListenerImpl connection = ((CraftPlayer) player).getHandle().connection;
         Connection internal = getFieldValue(CONNECTION, connection);
-        internal.channel.pipeline().addBefore("packet_handler", "image_handler",
+        ChannelPipeline pipeline = internal.channel.pipeline();
+        if (pipeline.get("image_handler") != null) {
+            pipeline.remove("image_handler");
+        }
+        pipeline.addBefore("packet_handler", "image_handler",
                 new PlayerConnectionProxy(connection, listener, this));
     }
 

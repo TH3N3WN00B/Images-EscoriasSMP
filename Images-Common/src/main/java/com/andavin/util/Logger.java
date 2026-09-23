@@ -326,7 +326,7 @@ public final class Logger {
     public static void handle(Throwable throwable, Consumer<String> handler, boolean log) throws RuntimeException {
 
         String message = throwable.getMessage();
-        if (message != null && message.trim().charAt(0) == '§') {
+        if (startsWithColorCode(message)) {
             handler.accept(message);
             return;
         }
@@ -334,7 +334,7 @@ public final class Logger {
         for (Throwable cause = throwable.getCause(); cause != null; cause = cause.getCause()) {
 
             message = cause.getMessage();
-            if (message != null && message.trim().charAt(0) == '§') {
+            if (startsWithColorCode(message)) {
                 handler.accept(message);
                 return;
             }
@@ -348,6 +348,24 @@ public final class Logger {
         } else {
             throw new RuntimeException(throwable);
         }
+    }
+
+    /**
+     * If the given message starts with a Minecraft color code ('§')
+     * after any leading whitespace. A null or blank message never
+     * matches so that it can be safely treated as "not user facing".
+     *
+     * @param message The message to check.
+     * @return If the message starts with a color code.
+     */
+    private static boolean startsWithColorCode(String message) {
+
+        if (message == null) {
+            return false;
+        }
+
+        String trimmed = message.trim();
+        return !trimmed.isEmpty() && trimmed.charAt(0) == '§';
     }
 
     /**

@@ -43,6 +43,7 @@ public final class Reflection {
         PRIMITIVES.put(Float.class, Float.TYPE);
         PRIMITIVES.put(Double.class, Double.TYPE);
         PRIMITIVES.put(Boolean.class, Boolean.TYPE);
+        PRIMITIVES.put(Character.class, Character.TYPE);
         PRIMITIVES.put(Void.class, Void.TYPE);
     }
 
@@ -909,7 +910,10 @@ public final class Reflection {
                     if (primaryTypePrimitive || secondaryTypePrimitive) {
                         Class<?> type1 = primaryTypePrimitive ? primaryType : PRIMITIVES.get(primaryType);
                         Class<?> type2 = secondaryTypePrimitive ? secondaryType : PRIMITIVES.get(secondaryType);
-                        return type1 == type2;
+                        if (type1 == type2) {
+                            // Matched as primitive; keep checking the rest of the parameters
+                            continue;
+                        }
                     }
 
                     return false;

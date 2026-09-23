@@ -43,7 +43,7 @@ Este proyecto se distribuye bajo la licencia **MIT**.
 ## Instalación
 
 1. Descarga el JAR de **tu versión de Minecraft** desde la página de releases:
-   `images-escoriassmp-<version-minecraft>-2.7.3.jar`.
+   `images-escoriassmp-<version-minecraft>-2.7.4.jar`.
 2. Colócalo en la carpeta `plugins` de tu servidor.
 3. Reinicia el servidor. La primera vez generará la configuración en
    `plugins/Imagenes-EscoriasSMP/config.yml`.
@@ -131,6 +131,19 @@ El plugin original es **Custom Images** de **Andavin**. Esta bifurcación añade
   limita el tamaño máximo de una imagen creada desde un comando, reduciendo la dimensión mayor
   hasta cumplir el límite. `config.yml` se migra automáticamente a la versión 3 conservando los
   valores modificados.
+- **Auditoría completa de estabilidad y seguridad** (2.7.4): destaques de más de 50 correcciones
+  en NPEs, condiciones de carrera y optimizaciones:
+  - Límite de descompresión en zstd (anti-bomba de 64 MiB) y `commons-lang` empaquetado en el
+    JAR (ya no falla `NoClassDefFoundError` en servidores 1.17+ y versiones modernas).
+  - Los hilos de Netty ya no se bloquean indefinidamente esperando al hilo principal
+    (espera acotada a 5 segundos), y los temporizadores de `Scheduler` no se fugan en `/reload`.
+  - `pick` de mapas arreglado en Paper 1.21.5/1.21.8 (`tryPickItem` con despacho de aridad) y
+    detección de handler duplicado en el pipeline de paquetes de 1.21.x y 26.x.
+  - Carga tolerante a fallos: una fila o imagen corrupta ya no impide cargar el resto ni
+    registrar los comandos; carreras de lectura/escritura en el almacenamiento de archivos
+    eliminadas.
+  - Dependencias actualizadas: `zstd-jni 1.5.7-16` (CVE-2026-89045), `commons-compress 1.28.0`,
+    `xz 1.12` y `maven-compiler-plugin 3.16.0`.
 - **CI y versiones modernas**: build con JDK 25 y GitHub Actions actualizado, generando un JAR
   por versión de Minecraft (1.8.8 → 26.2).
 

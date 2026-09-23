@@ -42,6 +42,18 @@ public abstract class PacketListener<T, U> implements Versioned {
     static Supplier<List<CustomImage>> getImages;
 
     /**
+     * Get the current list of loaded images, never {@code null}.
+     * If the images have not been set yet (i.e. during startup) an
+     * empty list is returned so callers never hit an NPE.
+     *
+     * @return The list of images (possibly empty).
+     */
+    private static List<CustomImage> images() {
+        Supplier<List<CustomImage>> supplier = getImages;
+        return supplier == null ? java.util.Collections.emptyList() : supplier.get();
+    }
+
+    /**
      * Set a new entity listener to the given player's
      * packet listener.
      *
@@ -97,7 +109,7 @@ public abstract class PacketListener<T, U> implements Versioned {
      */
     public static CustomImageSection getImageSection(int mapId) {
 
-        List<CustomImage> images = getImages.get();
+        List<CustomImage> images = images();
         //noinspection SynchronizationOnLocalVariableOrMethodParameter
         synchronized (images) {
 
@@ -123,7 +135,7 @@ public abstract class PacketListener<T, U> implements Versioned {
      */
     public static CustomImageSection getImageSectionByEntityId(int frameId) {
 
-        List<CustomImage> images = getImages.get();
+        List<CustomImage> images = images();
         //noinspection SynchronizationOnLocalVariableOrMethodParameter
         synchronized (images) {
 
@@ -156,7 +168,7 @@ public abstract class PacketListener<T, U> implements Versioned {
 
         Scheduler.async(() -> {
 
-            List<CustomImage> images = getImages.get();
+            List<CustomImage> images = images();
             //noinspection SynchronizationOnLocalVariableOrMethodParameter
             synchronized (images) {
 

@@ -113,6 +113,10 @@ class PacketEventsListener extends SimplePacketListenerAbstract {
      */
     private static int mapId(ItemStack item) {
 
+        if (item == null) {
+            return -1;
+        }
+
         if (item.hasComponent(ComponentTypes.MAP_ID)) {
             Integer id = item.getComponent(ComponentTypes.MAP_ID).orElse(null);
             if (id != null) {

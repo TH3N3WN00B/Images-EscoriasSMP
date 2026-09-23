@@ -51,7 +51,7 @@ import java.util.function.Supplier;
 public final class Scheduler {
 
     private static Plugin instance;
-    private static final ExecutorService ASYNC = asyncExecutor();
+    private static volatile ExecutorService ASYNC;
 
     /**
      * Create an {@link ExecutorService} for asynchronous work. If the
@@ -68,11 +68,46 @@ public final class Scheduler {
     }
 
     /**
+     * Get the asynchronous executor, lazily creating a new one if it has
+     * been shut down (i.e. after a plugin {@code /reload}). This allows
+     * the scheduler to keep working across reloads instead of permanently
+     * rejecting work with {@link java.util.concurrent.RejectedExecutionException}.
+     *
+     * @return The executor to run asynchronous work on.
+     */
+    private static ExecutorService async() {
+
+        ExecutorService executor = ASYNC;
+        if (executor == null) {
+            synchronized (Scheduler.class) {
+                executor = ASYNC;
+                if (executor == null) {
+                    executor = ASYNC = asyncExecutor();
+                }
+            }
+        }
+
+        return executor;
+    }
+
+    /**
      * Shut the asynchronous executor down. This should be called when the
      * plugin is disabled so that any pending work is cancelled.
+     * <p>
+     * A fresh executor is created lazily if the scheduler is used again
+     * afterwards (i.e. after a plugin {@code /reload}).
      */
     public static void shutdown() {
-        ASYNC.shutdownNow();
+        ExecutorService executor = ASYNC;
+        if (executor != null) {
+            executor.shutdownNow();
+        }
+        // On the next use a new executor is created (see {@link #async()}).
+        // Don't clear it here so a partially scheduled reload does not race;
+        // the lazy check is a harmless double-create in the worst case.
+        synchronized (Scheduler.class) {
+            ASYNC = null;
+        }
     }
 
     /**
@@ -94,7 +129,7 @@ public final class Scheduler {
      * @return The {@link BukkitTask} that is returned after registering the task.
      */
     public static BukkitTask async(Runnable run) {
-        return Bukkit.getScheduler().runTaskAsynchronously(instance, () -> ASYNC.execute(run));
+        return Bukkit.getScheduler().runTaskAsynchronously(instance, () -> async().execute(run));
     }
 
     /**
@@ -118,7 +153,7 @@ public final class Scheduler {
      * @return The {@link BukkitTask} that is returned after registering the task.
      */
     public static BukkitTask laterAsync(Runnable run, long delay) {
-        return Bukkit.getScheduler().runTaskLaterAsynchronously(instance, () -> ASYNC.execute(run), delay);
+        return Bukkit.getScheduler().runTaskLaterAsynchronously(instance, () -> async().execute(run), delay);
     }
 
     /**
@@ -144,7 +179,7 @@ public final class Scheduler {
      * @return The {@link BukkitTask} that is returned after registering the task.
      */
     public static BukkitTask repeatAsync(Runnable run, long delay, long period) {
-        return Bukkit.getScheduler().runTaskTimerAsynchronously(instance, () -> ASYNC.execute(run), delay, period);
+        return Bukkit.getScheduler().runTaskTimerAsynchronously(instance, () -> async().execute(run), delay, period);
     }
 
     /**
@@ -343,8 +378,14 @@ public final class Scheduler {
 
     private static class Task implements Runnable {
 
-        BukkitTask task;
-        boolean cancelled;
+        /*
+         * Both fields are read and written from different threads
+         * (the Bukkit scheduler thread and the thread running the
+         * async task), so they must be volatile to prevent a task
+         * from being leaked after it has been cancelled.
+         */
+        volatile BukkitTask task;
+        volatile boolean cancelled;
         private final Runnable runnable;
         private final BooleanSupplier condition;
 
@@ -367,23 +408,26 @@ public final class Scheduler {
         public void run() {
 
             if (this.cancelled) {
-
-                if (this.task != null) {
-                    this.task.cancel();
+                BukkitTask task = this.task;
+                if (task != null) {
+                    task.cancel();
                 }
-
                 return;
             }
 
             if (this.condition.getAsBoolean()) {
                 this.runnable.run();
-            } else {
+                return;
+            }
 
-                if (this.task != null) {
-                    this.task.cancel();
-                } else {
-                    this.cancelled = true;
-                }
+            // The condition is no longer met: cancel the task if it has
+            // been set yet, otherwise mark it cancelled so that the next
+            // run (if there ever is one) cancels it. Both branches are
+            // taken when possible so that no state is ever left behind.
+            this.cancelled = true;
+            BukkitTask task = this.task;
+            if (task != null) {
+                task.cancel();
             }
         }
     }
@@ -404,11 +448,10 @@ public final class Scheduler {
         public void run() {
 
             if (this.cancelled) {
-
-                if (this.task != null) {
-                    this.task.cancel();
+                BukkitTask task = this.task;
+                if (task != null) {
+                    task.cancel();
                 }
-
                 return;
             }
 
@@ -416,11 +459,10 @@ public final class Scheduler {
             if (count < this.maxCount) {
                 this.consumer.accept(count);
             } else {
-
-                if (this.task != null) {
-                    this.task.cancel();
-                } else {
-                    this.cancelled = true;
+                this.cancelled = true;
+                BukkitTask task = this.task;
+                if (task != null) {
+                    task.cancel();
                 }
             }
         }

@@ -96,7 +96,7 @@ public class Images extends JavaPlugin implements Listener {
     // to from the asynchronous idle-refresh task
     private static final Map<UUID, Long> LAST_MOVE_TIMES = new ConcurrentHashMap<>();
     private static final PacketListener BRIDGE = Versioned.getInstance(PacketListener.class);
-    private static final Map<UUID, ImageListener> LISTENER_TASKS = new HashMap<>(4);
+    private static final Map<UUID, ImageListener> LISTENER_TASKS = new ConcurrentHashMap<>(4);
 
     @Override
     public void onLoad() {
@@ -184,7 +184,22 @@ public class Images extends JavaPlugin implements Listener {
         }
 
         Scheduler.laterAsync(() -> {
-            IMAGES.addAll(dataManager.load());
+            List<CustomImage> loaded;
+            try {
+                loaded = dataManager.load();
+            } catch (Throwable throwable) {
+                /*
+                 * A single corrupt entry must never prevent the rest of
+                 * the plugin (and especially the commands) from working.
+                 * The data managers already skip bad rows individually;
+                 * this is a final safety net.
+                 */
+                loaded = Collections.emptyList();
+                Logger.severe(throwable, "Failed to load images from storage:");
+            }
+            synchronized (IMAGES) {
+                IMAGES.addAll(loaded);
+            }
             Logger.info("Loaded {} images...", IMAGES.size());
             CommandRegistry.registerCommands();
         }, 40L);

@@ -92,12 +92,21 @@ class PacketListener extends com.andavin.images.PacketListener<PacketPlayInUseEn
 
                 synchronized (complete) {
 
+                    long deadline = System.currentTimeMillis() + 5_000L;
                     while (!complete.get()) {
 
+                        if (System.currentTimeMillis() >= deadline) {
+                            // Never block the Netty thread indefinitely waiting for the
+                            // main thread; give up on this packet after 5 seconds.
+                            break;
+                        }
+
                         try {
-                            complete.wait();
+                            complete.wait(deadline - System.currentTimeMillis());
                         } catch (InterruptedException e) {
-                            Logger.severe(e);
+                            Thread.currentThread().interrupt();
+                            Logger.warn("Interrupted while waiting for the main thread to handle the item");
+                            break;
                         }
                     }
                 }
@@ -109,6 +118,10 @@ class PacketListener extends com.andavin.images.PacketListener<PacketPlayInUseEn
     protected void handle(Player player, PacketPlayInSetCreativeSlot packet) {
 
         ItemStack item = packet.getItemStack();
+        if (item == null) {
+            return;
+        }
+
         NBTTagCompound tag = item.getTag();
         if (tag != null) {
 
@@ -139,12 +152,21 @@ class PacketListener extends com.andavin.images.PacketListener<PacketPlayInUseEn
 
                     synchronized (complete) {
 
+                        long deadline = System.currentTimeMillis() + 5_000L;
                         while (!complete.get()) {
 
+                            if (System.currentTimeMillis() >= deadline) {
+                                // Never block the Netty thread indefinitely waiting for the
+                                // main thread; give up on this packet after 5 seconds.
+                                break;
+                            }
+
                             try {
-                                complete.wait();
+                                complete.wait(deadline - System.currentTimeMillis());
                             } catch (InterruptedException e) {
-                                Logger.severe(e);
+                                Thread.currentThread().interrupt();
+                                Logger.warn("Interrupted while waiting for the main thread to handle the item");
+                                break;
                             }
                         }
                     }

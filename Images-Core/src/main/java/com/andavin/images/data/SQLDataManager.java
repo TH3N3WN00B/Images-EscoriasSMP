@@ -68,9 +68,16 @@ abstract class SQLDataManager implements DataManager {
             try (ResultSet result = select.executeQuery()) {
 
                 while (result.next()) {
-                    CustomImage image = toImage(result.getBytes("data"));
-                    image.setId(result.getInt("id"));
-                    images.add(image);
+                    try {
+                        CustomImage image = toImage(result.getBytes("data"));
+                        image.setId(result.getInt("id"));
+                        images.add(image);
+                    } catch (Throwable throwable) {
+                        // A single corrupt/obsolete row must not prevent
+                        // every image from loading; skip and log it.
+                        Logger.severe(throwable, "Skipping corrupt image data (SQL row {}):",
+                                result.getInt("id"));
+                    }
                 }
             }
         } catch (SQLException e) {

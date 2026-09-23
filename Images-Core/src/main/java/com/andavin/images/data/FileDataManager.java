@@ -78,7 +78,11 @@ public class FileDataManager implements DataManager {
         try (ObjectInputStream stream = new ObjectInputStream(new ByteArrayInputStream(data))) {
 
             int capacity = stream.readInt();
-            images = new ArrayList<>(capacity);
+            // Never trust the stored count blindly: a corrupt header with a
+            // huge count would otherwise allocate an absurd array (OOM).
+            // Each entry occupies at least one byte in the stream, so the
+            // byte length is a safe upper bound for the element count.
+            images = new ArrayList<>(Math.min(capacity, data.length));
             for (int i = 0; i < capacity; i++) {
                 images.add((CustomImage) stream.readObject());
             }
@@ -92,7 +96,7 @@ public class FileDataManager implements DataManager {
     }
 
     @Override
-    public void save(CustomImage image) {
+    public synchronized void save(CustomImage image) {
         // We have to read all of the images, add one to it and
         // write them all again so as to not overwrite anything
         List<CustomImage> images = this.load();
@@ -124,7 +128,7 @@ public class FileDataManager implements DataManager {
     }
 
     @Override
-    public void delete(CustomImage image) {
+    public synchronized void delete(CustomImage image) {
         // We have to read all of the images, remove one from it
         // and write them all again so as to not overwrite anything
         List<CustomImage> images = this.load();
