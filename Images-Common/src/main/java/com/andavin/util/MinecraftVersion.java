@@ -205,11 +205,27 @@ public enum MinecraftVersion {
 
         PAPER = isPaper;
         String versionString = findMajorVersion();
+        MinecraftVersion current;
         try {
-            CURRENT = MinecraftVersion.valueOf(versionString);
+            current = MinecraftVersion.valueOf(versionString);
         } catch (RuntimeException e) {
-            throw new UnsupportedOperationException("Version " + versionString + " is not supported.", e);
+            /*
+             * Unknown (usually newer) major version: fall back to the most
+             * recent known one and warn, mirroring the "future compatibility"
+             * fallback already present in MinorVersion. Throwing here would
+             * break the entire plugin from the very first class load
+             * (ExceptionInInitializerError) instead of degrading gracefully:
+             * with a best-effort CURRENT the plugin still starts and the
+             * versioned packet handlers are reported missing with a clear
+             * message by Versioned.
+             */
+            current = versionString.startsWith("v1_") ? v1_23 : v26;
+            Logger.warn("Unknown Minecraft version {} detected. Falling back to {}. "
+                    + "The versioned packet handlers may not work for this version.",
+                    versionString, current);
         }
+
+        CURRENT = current;
     }
 
     /**

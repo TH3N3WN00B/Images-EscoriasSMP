@@ -76,8 +76,14 @@
                     <artifactId>maven-compiler-plugin</artifactId>
                     <version>3.16.0</version>
                     <configuration>
-                        <source>1.8</source>
-                        <target>1.8</target>
+                        <!--
+                            release 8 en lugar de -source/-target 1.8: el bytecode
+                            es el mismo (Java 8), pero javac ademas restringe las
+                            APIs del JDK a las de Java 8, detectando en compilacion
+                            cualquier uso accidental de APIs modernas que romperia
+                            el plugin en servidores antiguos con Java 8.
+                        -->
+                        <release>8</release>
                     </configuration>
                 </plugin>
                 <plugin>
