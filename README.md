@@ -2,161 +2,92 @@
 
 Fork mejorado de **Custom Images** que renderiza imágenes en los mapas de Minecraft.
 Coloca cualquier imagen (archivo local o URL) sobre una pared y se muestra como píxeles
-flotantes con marcos de ítem invisibles. Soporta Minecraft **1.8.8 → 1.21.11** y la rama **26.2**.
+flotantes con marcos de ítem invisibles. Soporta Minecraft **1.8.8 → 26.2**.
 
 Este proyecto se distribuye bajo la licencia **MIT**.
 
 ---
 
-## Cómo funciona
+## Qué ofrece
 
-1. **Crea** la imagen con `/image create` (desde un archivo del servidor o una URL, con
-   opción de redimensionar por porcentaje) o con un clic derecho.
-2. **Colócala** haciendo clic derecho sobre un bloque: la imagen se renderiza en mapas
-   colocados en marcos de ítem proyectados sobre la pared. Clic izquierdo cancela.
-3. **Renderizado en vivo**: cada jugador ve las imágenes dentro de su `show-distance`
-   (por defecto 64 bloques) y se ocultan al superar el `hide-distance` (128). Los píxeles
-   se convierten a la paleta de color de los mapas con una tabla precomputada de cuantización
-   5-bit, idéntica al renderizado nativo del juego.
-4. **Persistencia**: las imágenes se guardan en una base de datos SQLite, MySQL o en un
-   archivo, con compresión lossless zstd. Se pueden migrar entre almacenes con
-   `/image transfer`.
-
----
-
-## Características
-
-- Imágenes en marcos de ítem **invisibles** (solo 1.16+).
-- Soporte de formatos **PNG, WebP, JPEG, JPEG XL, WebM** y cualquier formato que Java
-  ImageIO o el binario estático de **ffmpeg** puedan decodificar.
-- **Recompresión lossless** del origen (JPEG XL > WebP > PNG) con caché por contenido, y
-  decodificación con aceleración por hardware cuando el dispositivo está montado.
-- Descarga automática y caché del binario estático de ffmpeg (BtbN FFmpeg-Builds) por
-  plataforma.
-- Actualización automática mediante comprobación de lanzamientos de GitHub.
-- Protección contra creación desde URL a direcciones locales (SSRF).
-- Restricción opcional por creador (`creator-restricted`).
-- Importación automática de datos de la versión legacy (1.0.x-SNAPSHOT).
+- **Renderizado en el juego**: las imágenes se proyectan sobre los mapas de Minecraft
+  usando marcos de ítem invisibles (1.16+).
+- **Creación sencilla**: `/image create` desde un archivo del servidor o una URL, con
+  escala opcional. Clic derecho coloca la imagen y clic izquierdo cancela.
+- **Renderizado en vivo por jugador**: las secciones se muestran dentro del
+  `show-distance` (64 bloques por defecto) y se ocultan al superar el `hide-distance`
+  (128), con una conversión nativa a la paleta de color de los mapas.
+- **Persistencia**: las imágenes se guardan en **SQLite, MySQL o archivo** con compresión
+  lossless zstd, y pueden migrarse entre almacenes con `/image transfer`.
+- **Formatos ampliados**: **PNG, WebP, JPEG, JPEG XL y WebM**, decodificados por Java
+  ImageIO o por un binario estático de ffmpeg descargado y cacheado automáticamente.
+- **Optimización de almacenamiento**: recompresión lossless del origen (JPEG XL > WebP >
+  PNG) con caché por contenido y aceleración por hardware cuando el dispositivo lo permite.
+- **Seguridad y control**: protector SSRF contra URLs locales y restricción opcional
+  de creador (`creator-restricted`).
 
 ---
 
-## Instalación
+## Versiones compatibles
 
-1. Descarga el JAR de **tu versión de Minecraft** desde la página de releases:
-   `images-escoriassmp-<version-minecraft>-2.7.4.jar`.
-2. Colócalo en la carpeta `plugins` de tu servidor.
-3. Reinicia el servidor. La primera vez generará la configuración en
-   `plugins/Imagenes-EscoriasSMP/config.yml`.
-4. (Opcional) Coloca imágenes en `plugins/Imagenes-EscoriasSMP/images/` para crearlas
-   desde archivo y configura la base de datos deseada.
+1.8.8 · 1.9.4 · 1.10.2 · 1.11.2 · 1.12.2 · 1.13.2 · 1.14.4 · 1.15.2
+· 1.16.3 · 1.16.5 · 1.17.1 · 1.18.1 · 1.18.2 · 1.19.2 · 1.19.3 · 1.19.4
+· 1.20.1 · 1.20.2 · 1.20.4 · 1.20.6 · 1.21.1 · 1.21.3 · 1.21.4 · 1.21.5
+· 1.21.8 · 1.21.10 · 1.21.11 · 26.2
 
----
-
-## Comandos
-
-Todos los comandos cuelgan de `/image` (aliases: `/images`, `/img`, `/customimage`).
-
-| Comando | Función |
-|---|---|
-| `/image` | Muestra la lista de subcomandos disponibles. |
-| `/image create <nombre \| URL> [porcentaje]` | Comienza a crear una imagen desde un archivo de la carpeta `images/` o una URL, con escala opcional (más de 1%). Clic derecho coloca, clic izquierdo cancela. Aliases: `new`, `add`, `load`. |
-| `/image delete` | Elimina una imagen existente haciendo clic sobre ella. Aliases: `del`, `remove`, `unload`. |
-| `/image delete near <rango>` | Elimina todas las imágenes dentro del rango dado. Alias: `delete n`. |
-| `/image list` | Muestra las opciones de imágenes disponibles. Alias: `options`. |
-| `/image import` | Importa y destruye todas las imágenes del formato legacy y las recrea en el formato actual. Alias: `legacyImport`. |
-| `/image transfer <MySQL \| SQLite \| File>` | Transfiere todos los datos al almacenamiento indicado en la configuración y reinicia el servidor. Alias: `datatransfer`. |
-
-> `size` y `resize` están implementados pero **deshabilitados** en el comando raíz.
-
----
-
-## Permisos
-
-| Permiso | Comando |
-|---|---|
-| `images.command.manage` | Acceso a `/image` (padre). |
-| `images.command.create` | `/image create` |
-| `images.command.create.url` | Crear imágenes desde URL. |
-| `images.command.delete` | `/image delete` |
-| `images.command.delete.near` | `/image delete near` |
-| `images.command.list` | `/image list` |
-| `images.command.import` | `/image import` |
-| `images.command.transfer` | `/image transfer` |
-| `images.restricted.bypass` | Ignora la restricción de creador. |
-
----
-
-## Configuración
-
-| Opción | Por defecto | Descripción |
-|---|---|---|
-| `config-version` | `3` | Versión del fichero; se migra solo (con copia en `config.yml.bak`). |
-| `invisible-frames` | `true` | Marcos de ítem invisibles tras la imagen (1.16+). |
-| `show-distance` / `hide-distance` | `64` / `128` | Rango para mostrar/ocultar secciones de imagen. |
-| `max-sections` | `64` | Máximo de secciones 128×128 de una imagen (≈8×8 bloques); fuentes mayores se escalan hacia abajo al crear. `0` desactiva el límite. |
-| `database.type` | `SQLITE` | `MYSQL`, `SQLITE` o `FILE`. |
-| `permissions.creator-restricted` | `false` | Solo el creador puede modificar la imagen. |
-| `update-check` / `update-interval-minutes` | `true` / `360` | Comprobación de actualizaciones. |
-| `ffmpeg.*` | habilitado | Decodificación con ffmpeg, binario automático (BtbN), recompresión lossless y formato preferido (`AUTO`, `PNG`, `WEBP`, `JXL`). |
-| `image-storage.compression` | `true` | Compresión zstd de imágenes almacenadas (solo datos nuevos). |
+En cada release se publica un JAR por versión de Minecraft, por ejemplo
+`images-escoriassmp-1.21.8-X.X.X.jar` para 1.21.8.
 
 ---
 
 ## Cambios respecto al plugin original
 
-El plugin original es **Custom Images** de **Andavin**. Esta bifurcación añade:
+Fork de **Custom Images** de **Andavin**. Mejoras principales:
 
-- **Decodificación ampliada** (2.6.3): soporte de **WebP, JPEG XL y WebM** mediante un binario
-  estático de ffmpeg descargado automáticamente y cachéado por plataforma, con fallback para
-  cualquier formato que Java ImageIO no pueda leer.
-- **Almacenamiento con zstd** (2.6.3): compresión lossless de las imágenes guardadas en SQLite,
-  MySQL o archivo, manteniendo compatibilidad con datos antiguos.
-- **Migración automática de configuración** (2.6.3): el fichero `config.yml` se migra solo entre
-  versiones sin perder los valores modificados.
-- **Recompresión lossless y caché por contenido** (2.7.0): al crear imágenes, el origen se
-  re-comprime sin pérdida (JPEG XL > WebP > PNG) y se cachea por hash de contenido; reutilizar
-  el mismo archivo o URL ya no cuesta nada. Se intenta aceleración por hardware solo cuando el
-  dispositivo está montado.
-- **Correcciones de estabilidad y rendimiento** (2.7.1): corrección de fugas de memoria
-  asociadas a UUID de jugadores (listas de movimiento, tareas de creación y oyentes se limpian
-  al salir y en `/reload`) y conversión de píxeles a la paleta del mapa mediante tabla
-  precomputada de cuantización 5-bit (~100× más rápida por píxel, sin asignaciones por píxel).
-- **Corrección del comprobador de actualizaciones** (2.7.2): ya no lanza una excepción cuando
-  la respuesta de GitHub no incluye ningún asset `.jar`, y la coincidencia de assets se busca
-  correctamente antes de leerlos.
-- **Recompresión ffmpeg siempre en decodificación** (2.7.3): al decodificar, la imagen se
-  re-comprime sin pérdida (JPEG XL > WebP > PNG) de forma incondicional y se decodifica la copia
-  optimizada, garantizando el mismo rendimiento y compatibilidad donde ImageIO falla.
-- **Límite de secciones por imagen** (2.7.3): nueva opción `max-sections` (por defecto 64) que
-  limita el tamaño máximo de una imagen creada desde un comando, reduciendo la dimensión mayor
-  hasta cumplir el límite. `config.yml` se migra automáticamente a la versión 3 conservando los
-  valores modificados.
-- **Auditoría completa de estabilidad y seguridad** (2.7.4): destaques de más de 50 correcciones
-  en NPEs, condiciones de carrera y optimizaciones:
-  - Límite de descompresión en zstd (anti-bomba de 64 MiB) y `commons-lang` empaquetado en el
-    JAR (ya no falla `NoClassDefFoundError` en servidores 1.17+ y versiones modernas).
-  - Los hilos de Netty ya no se bloquean indefinidamente esperando al hilo principal
-    (espera acotada a 5 segundos), y los temporizadores de `Scheduler` no se fugan en `/reload`.
-  - `pick` de mapas arreglado en Paper 1.21.5/1.21.8 (`tryPickItem` con despacho de aridad) y
-    detección de handler duplicado en el pipeline de paquetes de 1.21.x y 26.x.
-  - Carga tolerante a fallos: una fila o imagen corrupta ya no impide cargar el resto ni
-    registrar los comandos; carreras de lectura/escritura en el almacenamiento de archivos
-    eliminadas.
-  - Dependencias actualizadas: `zstd-jni 1.5.7-16` (CVE-2026-89045), `commons-compress 1.28.0`,
-    `xz 1.12` y `maven-compiler-plugin 3.16.0`.
-- **CI y versiones modernas**: build con JDK 25 y GitHub Actions actualizado, generando un JAR
-  por versión de Minecraft (1.8.8 → 26.2).
+- **Decodificación ampliada**: soporte de **WebP, JPEG XL y WebM** mediante un binario
+  estático de ffmpeg (BtbN) descargado automáticamente y cacheado por plataforma, con
+  fallback para cualquier formato que Java ImageIO no pueda leer.
+- **Almacenamiento optimizado**: compresión lossless **zstd** de las imágenes guardadas,
+  con total compatibilidad con los datos de versiones anteriores.
+- **Migración automática de configuración** entre versiones, conservando los valores
+  modificados por el administrador.
+- **Creación más rápida**: recompresión lossless del origen con caché por hash de
+  contenido, de forma que reutilizar un archivo o URL no vuelve a costar nada.
+- **Rendimiento y estabilidad**: conversión de píxeles a la paleta del mapa mediante
+  tabla precomputada de cuantización 5-bit (~100× más rápida, sin asignaciones por
+  píxel), corrección de fugas de memoria y una auditoría de seguridad que incluye
+  esperas acotadas en los hilos de red, carga de datos tolerante a fallos y límite
+  anti-bomba de descompresión.
+- **Límite de tamaño** configurable por imagen (`max-sections`).
+- **CI**: build automático con GitHub Actions que genera **un JAR por versión de
+  Minecraft** (1.8.8 → 26.2) adjuntado a cada release.
+
+---
+
+## Contribuir
+
+¡Las contribuciones son bienvenidas!
+
+1. Haz un *fork* del repositorio y crea una rama con tu cambio:
+   `git checkout -b mi-cambio`.
+2. Implementa el cambio y comprueba que el proyecto sigue compilando
+   (ver [Compilación](#compilación)).
+3. Abre un *pull request* describiendo el problema que resuelve.
+
+Para reportar errores o proponer mejoras, abre un *issue* en GitHub.
 
 ---
 
 ## Compilación
 
+Requisitos: **Maven 3.9+** y **JDK 25**.
+
 ```bash
 mvn clean package
 ```
 
-Compila todos los módulos (cada uno con su JAR por versión de Minecraft) y genera el plugin
-principal en `Images-Core/target/`. Requiere Maven 3.9+ y un JDK 25.
+Compila todos los módulos y genera el plugin principal en `Images-Core/target/`
+además de los JARs intermedios de cada versión de Minecraft.
 
 ---
 
