@@ -161,7 +161,8 @@ public class Images extends JavaPlugin implements Listener {
                         config.getInt("database.port"),
                         config.getString("database.schema"),
                         config.getString("database.user"),
-                        config.getString("database.password")
+                        config.getString("database.password"),
+                        config.getBoolean("database.use-ssl", false)
                 );
                 break;
             case "SQLITE":
@@ -201,7 +202,8 @@ public class Images extends JavaPlugin implements Listener {
                 IMAGES.addAll(loaded);
             }
             Logger.info("Loaded {} images...", IMAGES.size());
-            CommandRegistry.registerCommands();
+            // Commands and their listeners must be registered on the main thread
+            Scheduler.sync(CommandRegistry::registerCommands);
         }, 40L);
 
         // Refresh each player once after they have been idle for 2.5 seconds
@@ -400,6 +402,10 @@ public class Images extends JavaPlugin implements Listener {
                         !StringUtils.contains(fileName, File.pathSeparatorChar),
                 "§cInvalid image name: %s", fileName);
         File match = findImageFile(imagesDirectory, fileName);
+        if (match == null && fileName.indexOf('_') != -1) {
+            // Tab completion and the click-to-create list replace spaces with underscores
+            match = findImageFile(imagesDirectory, fileName.replace('_', ' '));
+        }
         checkArgument(match != null, "§cImage not found§f %s", fileName);
         return match;
     }
@@ -425,8 +431,9 @@ public class Images extends JavaPlugin implements Listener {
             for (File file : imageFiles) {
 
                 String name = file.getName();
-                if (fileName.startsWith(name) && file.isDirectory()) {
-                    String trimmedFileName = fileName.substring(name.length() + 2); // Remove separator too
+                if (file.isDirectory() && fileName.length() > name.length() + 1 &&
+                        fileName.startsWith(name) && fileName.charAt(name.length()) == File.separatorChar) {
+                    String trimmedFileName = fileName.substring(name.length() + 1); // Remove separator too
                     checkArgument(trimmedFileName.charAt(0) != '.',
                             "§cInvalid image name: %s", fileName);
                     return findImageFile(file, trimmedFileName);
@@ -473,12 +480,18 @@ public class Images extends JavaPlugin implements Listener {
      */
     public static boolean addImage(CustomImage image) {
 
-        if (IMAGES.contains(image)) {
-            return false;
+        synchronized (IMAGES) {
+            if (IMAGES.contains(image)) {
+                return false;
+            }
         }
 
         dataManager.save(image);
         synchronized (IMAGES) {
+            if (IMAGES.contains(image)) {
+                return false;
+            }
+
             IMAGES.add(image);
         }
 
@@ -507,8 +520,17 @@ public class Images extends JavaPlugin implements Listener {
      */
     public static boolean removeImage(CustomImage image) {
 
-        synchronized (IMAGES) {
+        try {
+            // Do the (potentially slow) storage I/O outside of the lock
+            // and keep the image if it could not be deleted so memory and
+            // storage stay consistent
             dataManager.delete(image);
+        } catch (Throwable throwable) {
+            Logger.severe(throwable, "Failed to delete image {} from storage:", image.getImageName());
+            return false;
+        }
+
+        synchronized (IMAGES) {
             return IMAGES.remove(image);
         }
     }

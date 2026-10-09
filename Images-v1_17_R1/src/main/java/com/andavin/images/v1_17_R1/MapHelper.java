@@ -67,7 +67,7 @@ class MapHelper extends com.andavin.images.MapHelper {
     private static final Field ENTITY_ID = findField(Entity.class, "as");
     private static final EntityDataAccessor<Integer> ROTATION =
             getFieldValue(ItemFrame.class, null, "ap");
-    private static final Map<UUID, AtomicInteger> MAP_IDS = new HashMap<>(4);
+    private static final Map<UUID, AtomicInteger> MAP_IDS = new java.util.concurrent.ConcurrentHashMap<>(4);
 
     @Override
     protected MapView getWorldMap(int id) {

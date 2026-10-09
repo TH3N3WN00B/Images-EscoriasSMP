@@ -47,8 +47,6 @@ public class ImageCommand extends BaseCommand {
         this.addChild(new ListCommand());
         this.addChild(new ImportCommand());
         this.addChild(new TransferCommand());
-//        this.addChild(new SizeCommand());
-//        this.addChild(new ResizeCommand());
     }
 
     @Override

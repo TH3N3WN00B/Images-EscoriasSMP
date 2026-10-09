@@ -37,6 +37,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.ItemFrame;
 
 import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -77,15 +78,22 @@ public final class LegacyImportManager {
 
         FileConfiguration data = YamlConfiguration.loadConfiguration(dataFile);
         List<LegacyImage> images = (List<LegacyImage>) data.get("images");
+        if (images == null) {
+            throw new IllegalStateException("§cThe legacy data file does not contain any images");
+        }
+
         List<CustomImage> importedImages = new ArrayList<>(images.size());
         for (LegacyImage legacyImage : images) {
 
             File file = legacyImage.getImageFile();
             BlockFace direction = null;
+            // Only collect the old frames here. They are removed from the world
+            // once the replacement image has been successfully read so that a
+            // missing or unreadable source file never destroys the legacy image
+            List<Entity> frames = new ArrayList<>();
             for (Entry<Location, LegacyImageSection> entry : legacyImage.getImageSections().entrySet()) {
 
                 Location location = entry.getKey();
-                LegacyImageSection section = entry.getValue();
                 location.getWorld().loadChunk(location.getBlockX() >> 4, location.getBlockZ() >> 4);
                 for (Entity entity : location.getWorld().getNearbyEntities(location, 1, 1, 1)) {
 
@@ -96,8 +104,7 @@ public final class LegacyImportManager {
                                 loc.getBlockY() == location.getBlockY() &&
                                 loc.getBlockZ() == location.getBlockZ()) {
 
-                            // Destroy the image
-                            entity.remove();
+                            frames.add(entity);
                             if (direction == null) {
                                 direction = ((ItemFrame) entity).getFacing();
                             }
@@ -111,19 +118,28 @@ public final class LegacyImportManager {
                 continue;
             }
 
-            if (file.exists()) {
-
-                Logger.info("Importing legacy image {} facing {}...", file.getName(), direction);
-                try {
-                    CustomImage image = new CustomImage(file.getName(), legacyImage.getLocation(),
-                            direction, ImageIO.read(file));
-                    dataManager.save(image);
-                    importedImages.add(image);
-                } catch (IOException e) {
-                    Logger.severe(e);
-                }
-            } else {
+            if (!file.exists()) {
                 Logger.warn("Image {} no longer exists. Skipping...", file.getName());
+                continue;
+            }
+
+            Logger.info("Importing legacy image {} facing {}...", file.getName(), direction);
+            try {
+
+                BufferedImage source = ImageIO.read(file);
+                if (source == null) {
+                    Logger.warn("Image {} could not be read. Skipping...", file.getName());
+                    continue;
+                }
+
+                CustomImage image = new CustomImage(file.getName(), legacyImage.getLocation(),
+                        direction, source);
+                dataManager.save(image);
+                importedImages.add(image);
+                // Destroy the legacy image now that the new one is saved
+                frames.forEach(Entity::remove);
+            } catch (IOException e) {
+                Logger.severe(e);
             }
         }
 

@@ -54,8 +54,8 @@ public final class Zstd {
      */
     public static final int MAX_DECOMPRESSED_SIZE = 1 << 26; // 64 MiB
     private static final int DEFAULT_LEVEL = 3;
-    private static int level = DEFAULT_LEVEL;
-    private static boolean enabled = true;
+    private static volatile int level = DEFAULT_LEVEL;
+    private static volatile boolean enabled = true;
 
     private Zstd() {
     }

@@ -74,7 +74,7 @@ public class ImportCommand extends BaseCommand {
 
         lastRun = now;
         player.sendMessage("§aImporting legacy images.\n" +
-                "§eThis will cause sever lag. Please wait...");
+                "§eThis will cause server lag. Please wait...");
         List<CustomImage> importedImages = LegacyImportManager.importImages(
                 Images.getImagesDirectory(), Images.getDataManager());
         Scheduler.async(() -> {

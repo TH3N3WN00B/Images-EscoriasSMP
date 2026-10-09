@@ -385,10 +385,9 @@ public final class Ffmpeg {
             command.add(file.getAbsolutePath());
             command.add("-an");
             command.add("-sn");
-            if (maxFrames == 1) {
-                command.add("-frames:v");
-                command.add("1");
-            }
+            // Never write more frames than will be read back
+            command.add("-frames:v");
+            command.add(String.valueOf(Math.max(maxFrames, 1)));
             command.add("-c:v");
             command.add("png");
             command.add("-f");
@@ -600,7 +599,7 @@ public final class Ffmpeg {
                 throw new IOException("HTTP " + code + " while downloading " + url);
             }
 
-            File archive = new File(dir, assembly);
+            File archive = new File(dir, assembly + ".part");
             try (InputStream in = connection.getInputStream();
                  OutputStream out = new FileOutputStream(archive)) {
                 byte[] buffer = new byte[65536];
@@ -612,6 +611,7 @@ public final class Ffmpeg {
                 connection.disconnect();
             }
 
+            verifyChecksum(archive, assembly);
             File temp = new File(dir, binName + ".tmp");
             if (assembly.endsWith(".zip")) {
                 extractZip(archive, temp, binName);
@@ -636,11 +636,72 @@ public final class Ffmpeg {
             Logger.info("ffmpeg static binary installed to '{}'", target);
         } catch (Exception e) {
             Logger.severe(e, "Unable to download static ffmpeg binary");
+            new File(dir, assembly + ".part").delete();
             target.delete();
             binary = null;
         }
 
         return binary;
+    }
+
+    /**
+     * Verify the downloaded archive against the {@code checksums.sha256}
+     * file that the BtbN releases publish next to the archives. A mismatch
+     * fails the install. If the checksum file is not available (i.e. a
+     * custom download URL) the check is skipped with a warning.
+     */
+    private static void verifyChecksum(File archive, String assembly) throws Exception {
+
+        String expected = null;
+        try {
+
+            URL url = new URL(downloadUrl.replace("{filename}", "checksums.sha256"));
+            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+            connection.setInstanceFollowRedirects(true);
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(30000);
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 Images-EscoriasSMP");
+            try {
+
+                if (connection.getResponseCode() == HttpURLConnection.HTTP_OK) {
+
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    try (InputStream in = connection.getInputStream()) {
+                        byte[] buffer = new byte[8192];
+                        int count;
+                        while ((count = in.read(buffer)) != -1 && out.size() < (1 << 20)) {
+                            out.write(buffer, 0, count);
+                        }
+                    }
+
+                    for (String line : new String(out.toByteArray(), StandardCharsets.UTF_8).split("\n")) {
+
+                        String[] parts = line.trim().split("\\s+");
+                        if (parts.length >= 2 && parts[parts.length - 1].replace("*", "").equals(assembly)) {
+                            expected = parts[0].toLowerCase(Locale.ENGLISH);
+                            break;
+                        }
+                    }
+                }
+            } finally {
+                connection.disconnect();
+            }
+        } catch (IOException e) {
+            Logger.debug(e, "Unable to download the ffmpeg checksum file");
+        }
+
+        if (expected == null) {
+            Logger.warn("No checksum available for {}; the download could not be verified", assembly);
+            return;
+        }
+
+        String actual = hashHex(archive);
+        if (!actual.equals(expected)) {
+            throw new IOException("checksum mismatch for " + assembly +
+                    " (expected " + expected + " but got " + actual + ")");
+        }
+
+        Logger.debug("ffmpeg archive checksum verified");
     }
 
     /**
@@ -743,11 +804,11 @@ public final class Ffmpeg {
         try {
             String encoders = probe(exe, "-encoders");
             capabilities = new Capabilities(hwaccels,
-                    encoders.contains("libjxl"),
-                    encoders.contains("libwebp"),
-                    encoders.contains("libvpx-vp9"),
-                    encoders.contains("mjpeg "), // Plain mjpeg (not mjpeg_qsv/vaapi)
-                    encoders.contains("png "),
+                    hasEncoder(encoders, "libjxl"),
+                    hasEncoder(encoders, "libwebp"),
+                    hasEncoder(encoders, "libvpx-vp9"),
+                    hasEncoder(encoders, "mjpeg"), // Plain mjpeg (not mjpeg_qsv/vaapi)
+                    hasEncoder(encoders, "png"), // Not apng
                     chooseHwAccel(hwaccels));
         } catch (Exception e) {
             Logger.debug(e, "Unable to probe ffmpeg capabilities");
@@ -756,6 +817,23 @@ public final class Ffmpeg {
         }
 
         return capabilities;
+    }
+
+    /**
+     * Test if the {@code -encoders} listing has an encoder with exactly
+     * the given name (the name is the second column of each line).
+     */
+    private static boolean hasEncoder(String listing, String name) {
+
+        for (String line : listing.split("\n")) {
+
+            String[] parts = line.trim().split("\\s+");
+            if (parts.length > 1 && parts[1].equals(name) && parts[0].length() == 6) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

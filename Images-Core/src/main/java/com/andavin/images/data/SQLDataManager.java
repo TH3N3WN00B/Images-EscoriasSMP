@@ -26,6 +26,7 @@ package com.andavin.images.data;
 import com.andavin.images.image.CustomImage;
 import com.andavin.reflect.exception.UncheckedClassNotFoundException;
 import com.andavin.util.Logger;
+import com.andavin.util.SafeObjectInputStream;
 import com.andavin.util.Zstd;
 
 import java.io.*;
@@ -125,19 +126,12 @@ abstract class SQLDataManager implements DataManager {
             delete.setInt(1, image.getId());
             delete.executeUpdate();
         } catch (SQLException e) {
-            Logger.severe(e);
+            // Let the caller know so the image is not removed from memory
+            // while it is still stored (it would come back on restart)
+            throw new RuntimeException(e);
         }
     }
 
-    /**
-     * Create a new {@link Connection} to the SQL database
-     * with the given properties and credentials specified
-     * at creation of this data manager.
-     *
-     * @return The newly created connection.
-     * @throws SQLException If something goes wrong while creating
-     *                      the connection.
-     */
     Connection getConnection() throws SQLException {
         return DriverManager.getConnection(this.url, this.properties);
     }
@@ -183,7 +177,7 @@ abstract class SQLDataManager implements DataManager {
         }
 
         ByteArrayInputStream byteStream = new ByteArrayInputStream(data);
-        try (ObjectInputStream stream = new ObjectInputStream(byteStream)) {
+        try (ObjectInputStream stream = new SafeObjectInputStream(byteStream)) {
             return (CustomImage) stream.readObject();
         } catch (IOException e) {
             throw new UncheckedIOException(e);

@@ -9,5 +9,5 @@ api-version: '1.13'
 commands:
   image:
     description: 'Manage custom images.'
-    usage: '/<command> [create|delete|list|import]'
+    usage: '/<command> [create|delete|list|import|transfer]'
     aliases: [ 'customimage', 'images', 'img' ]

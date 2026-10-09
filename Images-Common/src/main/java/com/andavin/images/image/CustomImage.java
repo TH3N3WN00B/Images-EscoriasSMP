@@ -133,7 +133,9 @@ public class CustomImage implements Serializable {
      *         section is not found.
      */
     public CustomImageSection getSection(int frameId) {
-        return this.sections.get(frameId);
+        synchronized (this.sections) {
+            return this.sections.get(frameId);
+        }
     }
 
     /**
@@ -146,7 +148,7 @@ public class CustomImage implements Serializable {
      */
     public CustomImageSection getSectionByMap(int mapId) {
 
-        for (CustomImageSection section : this.sections.values()) {
+        for (CustomImageSection section : this.snapshot()) {
 
             if (section.getMapId() == mapId) {
                 return section;
@@ -165,7 +167,7 @@ public class CustomImage implements Serializable {
      */
     public void refresh(Player player, Location location) {
 
-        for (CustomImageSection section : this.sections.values()) {
+        for (CustomImageSection section : this.snapshot()) {
 
             boolean sameWorld = location != null && section.getLocation().getWorld().equals(location.getWorld());
             if (sameWorld) {
@@ -192,7 +194,7 @@ public class CustomImage implements Serializable {
      */
     public void remove(Player player, boolean online) {
 
-        for (CustomImageSection section : this.sections.values()) {
+        for (CustomImageSection section : this.snapshot()) {
 
             if (online) {
                 section.hide(player);
@@ -211,13 +213,19 @@ public class CustomImage implements Serializable {
      */
     public Set<Player> destroy() {
 
-        int sections = this.sections.size();
+        CustomImageSection[] all;
+        synchronized (this.sections) {
+            all = this.sections.values().toArray(new CustomImageSection[0]);
+            this.sections.clear();
+        }
+
+        int sections = all.length;
         if (sections != 0) {
 
             int index = 0;
             int[] ids = new int[sections];
             Set<Player> players = new HashSet<>(sections);
-            for (CustomImageSection section : this.sections.values()) {
+            for (CustomImageSection section : all) {
                 ids[index++] = section.getFrameId();
                 section.shown.stream().map(Bukkit::getPlayer)
                         .filter(Objects::nonNull).forEach(players::add);
@@ -227,7 +235,6 @@ public class CustomImage implements Serializable {
                 MapHelper.destroyMaps(player, ids);
             }
 
-            this.sections.clear();
             return players;
         }
 
@@ -326,7 +333,9 @@ public class CustomImage implements Serializable {
                 CustomImageSection section = new CustomImageSection(loc, direction,
                         rotation, image.getSubimage(x * PIXELS_PER_FRAME, y * PIXELS_PER_FRAME,
                         PIXELS_PER_FRAME, PIXELS_PER_FRAME));
-                this.sections.put(section.getFrameId(), section);
+                synchronized (this.sections) {
+                    this.sections.put(section.getFrameId(), section);
+                }
             }
         }
 
@@ -354,7 +363,7 @@ public class CustomImage implements Serializable {
             return true;
         }
 
-        for (CustomImageSection section : this.sections.values()) {
+        for (CustomImageSection section : this.snapshot()) {
 
             if (section.getLocation().distanceSquared(location) <= rangeSqrd) {
                 return true;
@@ -362,6 +371,17 @@ public class CustomImage implements Serializable {
         }
 
         return false;
+    }
+
+    private CustomImageSection[] snapshot() {
+        synchronized (this.sections) {
+            return this.sections.values().toArray(new CustomImageSection[0]);
+        }
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(this.direction, this.imageName, this.creator, this.location);
     }
 
     @Override

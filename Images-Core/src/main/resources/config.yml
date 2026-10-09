@@ -9,7 +9,7 @@
 # the config is automatically migrated to the latest version while
 # keeping any values that you have modified. A backup of the old file
 # is created at 'config.yml.bak' just in case.
-config-version: 3
+config-version: 4
 
 # Item frames and maps will appear invisible behind
 # the image giving the effect that the pixels are
@@ -45,6 +45,8 @@ database:
   # The username and password to login with
   user: username
   password: password
+  # If the MySQL connection should use SSL/TLS (requires server support)
+  use-ssl: false
   # If the database needs to be initialized (e.g. the tables created etc.)
   # Unless you manually manage your database you probably won't need to touch this
   initialize: true

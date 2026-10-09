@@ -25,6 +25,7 @@ package com.andavin.images.data;
 
 import com.andavin.images.image.CustomImage;
 import com.andavin.reflect.exception.UncheckedClassNotFoundException;
+import com.andavin.util.SafeObjectInputStream;
 import com.andavin.util.Zstd;
 
 import java.io.*;
@@ -75,9 +76,13 @@ public class FileDataManager implements DataManager {
         }
 
         List<CustomImage> images;
-        try (ObjectInputStream stream = new ObjectInputStream(new ByteArrayInputStream(data))) {
+        try (ObjectInputStream stream = new SafeObjectInputStream(new ByteArrayInputStream(data))) {
 
             int capacity = stream.readInt();
+            if (capacity < 0) {
+                throw new StreamCorruptedException("negative image count " + capacity);
+            }
+
             // Never trust the stored count blindly: a corrupt header with a
             // huge count would otherwise allocate an absurd array (OOM).
             // Each entry occupies at least one byte in the stream, so the
@@ -107,22 +112,25 @@ public class FileDataManager implements DataManager {
     @Override
     public synchronized void saveAll(List<CustomImage> images) {
 
-        if (images.isEmpty()) {
-            return;
-        }
+        // An empty list must still be written, otherwise deleting the
+        // last image would leave it in the file and it would come back
+        File temp = new File(this.dataFile.getAbsolutePath() + ".tmp");
+        try {
 
-        File dataFile = new File(this.dataFile.getAbsolutePath() + ".tmp");
-        try (OutputStream fileOut = new FileOutputStream(dataFile);
-             OutputStream out = Zstd.wrap(fileOut);
-             ObjectOutputStream stream = new ObjectOutputStream(out)) {
+            try (OutputStream fileOut = new FileOutputStream(temp);
+                 OutputStream out = Zstd.wrap(fileOut);
+                 ObjectOutputStream stream = new ObjectOutputStream(out)) {
 
-            stream.writeInt(images.size());
-            for (CustomImage image : images) {
-                stream.writeObject(image);
+                stream.writeInt(images.size());
+                for (CustomImage image : images) {
+                    stream.writeObject(image);
+                }
             }
 
-            Files.move(dataFile.toPath(), this.dataFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            // Only move once every stream has been flushed and closed
+            Files.move(temp.toPath(), this.dataFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
+            temp.delete();
             throw new UncheckedIOException(e);
         }
     }

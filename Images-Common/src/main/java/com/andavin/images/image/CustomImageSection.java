@@ -33,9 +33,9 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.andavin.images.image.CustomImage.readLocation;
@@ -61,7 +61,7 @@ public class CustomImageSection implements Serializable {
 
     private transient Location location;
     private transient int frameId, mapId; // Should not be
-    transient Set<UUID> shown = new HashSet<>();
+    transient Set<UUID> shown = ConcurrentHashMap.newKeySet();
 
     CustomImageSection(Location location, BlockFace direction, int rotation, BufferedImage image) {
         this.rotation = rotation;
@@ -164,6 +164,6 @@ public class CustomImageSection implements Serializable {
         this.location = readLocation(in);
         this.frameId = ID_COUNTER.getAndIncrement();
         this.mapId = MapHelper.getNextMapId(location.getWorld());
-        this.shown = new HashSet<>();
+        this.shown = ConcurrentHashMap.newKeySet();
     }
 }

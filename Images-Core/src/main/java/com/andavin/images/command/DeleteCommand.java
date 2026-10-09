@@ -38,6 +38,7 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static com.andavin.images.image.CustomImage.UNKNOWN_CREATOR;
 import static com.andavin.util.MinecraftVersion.v1_15;
@@ -48,7 +49,7 @@ import static com.andavin.util.MinecraftVersion.v1_15;
  */
 final class DeleteCommand extends BaseCommand implements Listener {
 
-    private final Set<UUID> deleting = new HashSet<>();
+    private final Set<UUID> deleting = ConcurrentHashMap.newKeySet();
 
     DeleteCommand() {
         super("delete", "images.command.delete");
@@ -77,31 +78,7 @@ final class DeleteCommand extends BaseCommand implements Listener {
             }
         }, 5L, 20L, () -> this.deleting.contains(id));
 
-        Images.addListenerTask(player, (clicker, image, section, action, hand) -> {
-
-            if (!image.getCreator().equals(UNKNOWN_CREATOR) &&
-                    Images.getInstance().getConfig().getBoolean("permissions.creator-restricted")) {
-
-                if (!player.getUniqueId().equals(image.getCreator()) &&
-                        !player.hasPermission("images.restricted.bypass")) {
-                    player.sendMessage("§cInsufficient permission to modify that image");
-                    return;
-                }
-            }
-
-            if (action == InteractType.RIGHT_CLICK) {
-
-                Scheduler.async(() -> {
-
-                    if (this.deleting.remove(player.getUniqueId()) && Images.removeImage(image)) {
-                        image.destroy();
-                        player.sendMessage("§aImage successfully deleted");
-                    } else {
-                        player.sendMessage("§cFailed to delete image");
-                    }
-                });
-            }
-        });
+        this.addListener(player);
     }
 
     @EventHandler
@@ -125,6 +102,46 @@ final class DeleteCommand extends BaseCommand implements Listener {
         if (MinecraftVersion.lessThan(v1_15)) {
             this.cancel(event.getPlayer());
         }
+    }
+
+    private void addListener(Player player) {
+
+        Images.addListenerTask(player, (clicker, image, section, action, hand) -> {
+
+            // Only a right click deletes. Any other click must not use up the
+            // task, otherwise the delete mode would silently stop working
+            if (action != InteractType.RIGHT_CLICK) {
+                if (this.deleting.contains(player.getUniqueId())) {
+                    this.addListener(player);
+                }
+
+                return;
+            }
+
+            if (!image.getCreator().equals(UNKNOWN_CREATOR) &&
+                    Images.getInstance().getConfig().getBoolean("permissions.creator-restricted")) {
+
+                if (!player.getUniqueId().equals(image.getCreator()) &&
+                        !player.hasPermission("images.restricted.bypass")) {
+                    player.sendMessage("§cInsufficient permission to modify that image");
+                    this.addListener(player); // Stay in delete mode
+                    return;
+                }
+            }
+
+            if (action == InteractType.RIGHT_CLICK) {
+
+                Scheduler.async(() -> {
+
+                    if (this.deleting.remove(player.getUniqueId()) && Images.removeImage(image)) {
+                        image.destroy();
+                        player.sendMessage("§aImage successfully deleted");
+                    } else {
+                        player.sendMessage("§cFailed to delete image");
+                    }
+                });
+            }
+        });
     }
 
     private boolean cancel(Player player) {

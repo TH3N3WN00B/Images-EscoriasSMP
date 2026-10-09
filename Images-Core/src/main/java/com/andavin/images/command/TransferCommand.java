@@ -63,7 +63,8 @@ public final class TransferCommand extends BaseCommand {
                         config.getInt("database.port"),
                         config.getString("database.schema"),
                         config.getString("database.user"),
-                        config.getString("database.password")
+                        config.getString("database.password"),
+                        config.getBoolean("database.use-ssl", false)
                 );
 
                 break;
@@ -87,7 +88,7 @@ public final class TransferCommand extends BaseCommand {
                 break;
             default:
                 player.sendMessage("§cUnknown database type §f" + args[0]);
-                player.sendMessage("§7Try MySQL or SQLite");
+                player.sendMessage("§7Try MySQL, SQLite or File");
                 return;
         }
 
@@ -96,22 +97,34 @@ public final class TransferCommand extends BaseCommand {
             player.sendMessage("§aInitializing new database...");
             to.initialize();
             List<CustomImage> images = Images.getMatchingImages(i -> true);
-            images.forEach(image -> image.setId(-1)); // Reset the ID of the image so it can be reset
+            // Reset the ID of each image so it is inserted as a new row, but
+            // remember the originals so a failure leaves the images untouched
+            int[] ids = new int[images.size()];
+            for (int index = 0; index < ids.length; index++) {
+                ids[index] = images.get(index).getId();
+                images.get(index).setId(-1);
+            }
+
             player.sendMessage("§aSaving §f" + images.size() + "§a to new database...");
             try {
                 to.saveAll(images);
-                player.sendMessage("§aSuccessfully transferred all images!");
-                player.sendMessage("§eYou may now change the database configuration\n" +
-                        "§eto the new database and restart your server");
-                Logger.info("Successfully transferred all images to {}", type);
-                Logger.info("You may now change the database configuration to {}", type);
             } catch (Exception e) {
+                for (int index = 0; index < ids.length; index++) {
+                    images.get(index).setId(ids[index]);
+                }
+
                 player.sendMessage("§cAn error occurred while transferring!");
                 player.sendMessage("§eIf you are using MySQL ensure that it is configured properly.");
-                player.sendMessage("§eOtherwise, contact the developer");
+                player.sendMessage("§eThe server was not stopped and nothing was changed.");
                 Logger.severe(e);
+                return;
             }
-            // No matter what shutdown
+
+            player.sendMessage("§aSuccessfully transferred all images!");
+            player.sendMessage("§eYou may now change the database configuration\n" +
+                    "§eto the new database and restart your server");
+            Logger.info("Successfully transferred all images to {}", type);
+            Logger.info("You may now change the database configuration to {}", type);
             player.sendMessage("§eShutting down in 5 seconds...");
             Scheduler.laterAsync(Bukkit::shutdown, 100);
         });

@@ -60,7 +60,7 @@ final class ListCommand extends BaseCommand {
         for (File image : images) {
             String name = image.getName();
             player.spigot().sendMessage(new ComponentBuilder(" - ").color(ChatColor.GRAY).append(name).color(ChatColor.YELLOW)
-                    .event(new ClickEvent(Action.RUN_COMMAND, "/image create " + name))
+                    .event(new ClickEvent(Action.RUN_COMMAND, "/image create " + name.replace(' ', '_')))
                     .event(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new ComponentBuilder("Click to create ")
                             .color(ChatColor.GREEN).append(name).color(ChatColor.YELLOW).bold(true).create())).create());
         }

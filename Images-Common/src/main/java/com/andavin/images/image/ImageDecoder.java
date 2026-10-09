@@ -27,7 +27,10 @@ import com.andavin.util.Logger;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.util.Iterator;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 
 /**
  * Decodes image files into {@link BufferedImage}s using the standard
@@ -40,7 +43,45 @@ import javax.imageio.ImageIO;
  */
 public final class ImageDecoder {
 
+    /**
+     * The maximum amount of pixels that a source image may have. Larger
+     * images are rejected before they are decoded since a tiny file can
+     * declare enormous dimensions and exhaust the server memory.
+     */
+    private static final long MAX_PIXELS = 64L * 1024 * 1024;
+
     private ImageDecoder() {
+    }
+
+    /**
+     * Read only the header of the image (when ImageIO knows the format)
+     * and make sure that the declared dimensions are reasonable.
+     */
+    private static void checkDimensions(File file) throws IOException {
+
+        try (ImageInputStream in = ImageIO.createImageInputStream(file)) {
+
+            if (in == null) {
+                return;
+            }
+
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(in);
+            if (!readers.hasNext()) {
+                return; // Not an ImageIO format; ffmpeg handles it
+            }
+
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(in, true, true);
+                long pixels = (long) reader.getWidth(0) * reader.getHeight(0);
+                if (pixels > MAX_PIXELS) {
+                    throw new IOException("Image is too large (" + reader.getWidth(0) + "x" +
+                            reader.getHeight(0) + ") for " + file.getName());
+                }
+            } finally {
+                reader.dispose();
+            }
+        }
     }
 
     /**
@@ -68,6 +109,7 @@ public final class ImageDecoder {
         File optimized = Ffmpeg.encodeLossless(file);
         File input = optimized != null && !optimized.equals(file) ? optimized : file;
 
+        checkDimensions(input);
         BufferedImage image;
         try {
             image = ImageIO.read(input);

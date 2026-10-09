@@ -36,12 +36,13 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
+import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
@@ -70,7 +71,9 @@ final class CreateCommand extends BaseCommand implements Listener {
 
     private static final Pattern URL_TEST = Pattern.compile("^(https?|ftps?)://[-a-zA-Z0-9+&@#/%?=~_|!:,.;]*[-a-zA-Z0-9+&@#/%=~_|]");
     private static final int SECTION_PIXELS = 128;
-    private final Map<UUID, CreateImageTask> creating = new HashMap<>();
+    private static final long MAX_PIXELS = 64L * 1024 * 1024;
+    private static final int MAX_REDIRECTS = 5;
+    private final Map<UUID, CreateImageTask> creating = new ConcurrentHashMap<>();
 
     /**
      * The maximum number of 128x128-pixel sections a single image may span.
@@ -103,9 +106,7 @@ final class CreateCommand extends BaseCommand implements Listener {
             AtomicReference<String> fileName = new AtomicReference<>();
             imageSupplier = () -> {
                 URL url = new URI(imageNameArg).toURL();
-                InetAddress addr = InetAddress.getByName(url.getHost());
-                checkArgument(!addr.isAnyLocalAddress() && !addr.isLoopbackAddress() && !addr.isSiteLocalAddress(),
-                        "invalid local URL: %s", imageNameArg);
+                checkPublicHost(url, imageNameArg);
                 int slash = imageNameArg.lastIndexOf('/');
                 fileName.set(slash == -1 ? imageNameArg :
                         imageNameArg.substring(slash + 1));
@@ -129,7 +130,7 @@ final class CreateCommand extends BaseCommand implements Listener {
                 return;
             }
 
-            if (scale < 0.01) {
+            if (Double.isNaN(scale) || Double.isInfinite(scale) || scale < 0.01) {
                 player.sendMessage("§cScale must be more than 1%, but got §f" + scale * 100 + '%');
                 return;
             }
@@ -285,10 +286,20 @@ final class CreateCommand extends BaseCommand implements Listener {
                     return null;
                 }
 
+                // Work out the final size first and scale exactly once, so that
+                // a huge scale can never allocate an enormous intermediate image
+                int width = image.getWidth(), height = image.getHeight();
+                int targetWidth = width, targetHeight = height;
                 if (this.scale != 1) {
-                    image = scale(image,
-                            (int) Math.ceil(image.getWidth() * this.scale),
-                            (int) Math.ceil(image.getHeight() * this.scale));
+
+                    double scaledWidth = Math.ceil(width * this.scale);
+                    double scaledHeight = Math.ceil(height * this.scale);
+                    if (scaledWidth * scaledHeight > MAX_PIXELS) {
+                        throw new IllegalArgumentException("scaled image is too large");
+                    }
+
+                    targetWidth = Math.max((int) scaledWidth, 1);
+                    targetHeight = Math.max((int) scaledHeight, 1);
                 }
 
                 // Bound the created image so that it cannot span more
@@ -299,19 +310,17 @@ final class CreateCommand extends BaseCommand implements Listener {
                 int max = CreateCommand.maxSections;
                 if (max > 0) {
 
-                    int width = image.getWidth(), height = image.getHeight();
-                    if (sections(width, height) > max) {
-
-                        while (sections(width, height) > max) {
-                            if (width > height) {
-                                width = Math.max(SECTION_PIXELS, width - SECTION_PIXELS);
-                            } else {
-                                height = Math.max(SECTION_PIXELS, height - SECTION_PIXELS);
-                            }
+                    while (sections(targetWidth, targetHeight) > max) {
+                        if (targetWidth > targetHeight) {
+                            targetWidth = Math.max(SECTION_PIXELS, targetWidth - SECTION_PIXELS);
+                        } else {
+                            targetHeight = Math.max(SECTION_PIXELS, targetHeight - SECTION_PIXELS);
                         }
-
-                        image = scale(image, width, height);
                     }
+                }
+
+                if (targetWidth != width || targetHeight != height) {
+                    image = scale(image, targetWidth, targetHeight);
                 }
 
                 return image;
@@ -341,40 +350,112 @@ final class CreateCommand extends BaseCommand implements Listener {
 
     private static final int MAX_URL_BYTES = 100 * 1024 * 1024;
 
-    private static BufferedImage readImageFromUrl(URL url) throws IOException {
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setInstanceFollowRedirects(true);
-        connection.setConnectTimeout(10000);
-        connection.setReadTimeout(30000);
-        connection.setRequestProperty("Referer", url.getProtocol() + "://" + url.getHost() + "/");
-        int responseCode = connection.getResponseCode();
-        if (responseCode >= 400) {
-            throw new IOException("HTTP " + responseCode + " while downloading " + url);
-        }
-        // Download to a temporary file so that the format can be
-        // determined and decoded properly (including via ffmpeg)
-        String path = url.getPath();
-        String ext = path.length() == 0 ? "tmp" : path.substring(path.lastIndexOf('.') + 1);
-        File temp = File.createTempFile("images-", "." + ext);
-        try (InputStream in = connection.getInputStream();
-             OutputStream out = new FileOutputStream(temp)) {
+    /**
+     * Test that every address that the host of the URL resolves to is a
+     * public one. Loopback, wildcard, private, link-local (including the
+     * cloud metadata address), unique-local IPv6 and shared (CGNAT)
+     * addresses are all rejected.
+     */
+    private static void checkPublicHost(URL url, String original) throws IOException {
 
-            byte[] buffer = new byte[8192];
-            int count;
-            long total = 0;
-            while ((count = in.read(buffer)) != -1) {
-                total += count;
-                if (total > MAX_URL_BYTES) {
-                    throw new IOException("URL image exceeds the maximum size of 100MB");
-                }
-                out.write(buffer, 0, count);
+        String protocol = url.getProtocol();
+        checkArgument("http".equalsIgnoreCase(protocol) || "https".equalsIgnoreCase(protocol),
+                "unsupported URL protocol: %s", original);
+        checkArgument(url.getHost() != null && !url.getHost().isEmpty(),
+                "invalid URL: %s", original);
+        for (InetAddress addr : InetAddress.getAllByName(url.getHost())) {
+
+            byte[] raw = addr.getAddress();
+            boolean uniqueLocal = raw.length == 16 && (raw[0] & 0xFE) == 0xFC;
+            boolean shared = raw.length == 4 && (raw[0] & 0xFF) == 100 && (raw[1] & 0xC0) == 64;
+            checkArgument(!addr.isAnyLocalAddress() && !addr.isLoopbackAddress() &&
+                            !addr.isSiteLocalAddress() && !addr.isLinkLocalAddress() &&
+                            !addr.isMulticastAddress() && !uniqueLocal && !shared,
+                    "invalid local URL: %s", original);
+        }
+    }
+
+    private static String extension(URL url) {
+
+        String path = url.getPath();
+        String name = path.substring(path.lastIndexOf('/') + 1);
+        int dot = name.lastIndexOf('.');
+        if (dot != -1) {
+
+            String ext = name.substring(dot + 1);
+            if (ext.matches("[A-Za-z0-9]{1,8}")) {
+                return ext;
             }
         }
 
+        return "tmp";
+    }
+
+    private static BufferedImage readImageFromUrl(URL url) throws IOException {
+
+        // Follow redirects manually so that every hop is checked and a
+        // public URL cannot bounce the request to an internal address
+        HttpURLConnection connection;
+        URL current = url;
+        for (int redirects = 0; ; redirects++) {
+
+            checkPublicHost(current, current.toString());
+            connection = (HttpURLConnection) current.openConnection();
+            connection.setInstanceFollowRedirects(false);
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(30000);
+            connection.setRequestProperty("Referer", current.getProtocol() + "://" + current.getHost() + "/");
+            int responseCode = connection.getResponseCode();
+            if (responseCode >= 300 && responseCode < 400) {
+
+                String location = connection.getHeaderField("Location");
+                connection.disconnect();
+                if (location == null || redirects >= MAX_REDIRECTS) {
+                    throw new IOException("Too many redirects or invalid redirect for " + url);
+                }
+
+                try {
+                    current = new URL(current, location);
+                } catch (MalformedURLException e) {
+                    throw new IOException("Invalid redirect location " + location, e);
+                }
+
+                continue;
+            }
+
+            if (responseCode >= 400) {
+                connection.disconnect();
+                throw new IOException("HTTP " + responseCode + " while downloading " + url);
+            }
+
+            break;
+        }
+
+        // Download to a temporary file so that the format can be
+        // determined and decoded properly (including via ffmpeg)
+        File temp = File.createTempFile("images-", "." + extension(current));
         try {
+
+            try (InputStream in = connection.getInputStream();
+                 OutputStream out = new FileOutputStream(temp)) {
+
+                byte[] buffer = new byte[8192];
+                int count;
+                long total = 0;
+                while ((count = in.read(buffer)) != -1) {
+                    total += count;
+                    if (total > MAX_URL_BYTES) {
+                        throw new IOException("URL image exceeds the maximum size of 100MB");
+                    }
+                    out.write(buffer, 0, count);
+                }
+            } finally {
+                connection.disconnect();
+            }
+
             return ImageDecoder.decode(temp);
         } finally {
-            // The image is fully decoded into memory by this point
+            // Always remove the temporary file, even if the download failed
             //noinspection ResultOfMethodCallIgnored
             temp.delete();
         }
