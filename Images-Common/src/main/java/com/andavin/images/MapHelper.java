@@ -76,6 +76,15 @@ public abstract class MapHelper implements Versioned {
      * @param id The ID of the map to get.
      * @return The map view.
      */
+    /**
+     * Tell if the item frames of the images are invisible.
+     *
+     * @return If the frames are invisible.
+     */
+    public static boolean isInvisible() {
+        return invisible;
+    }
+
     public static MapView getMap(int id) {
         return BRIDGE.getWorldMap(id);
     }

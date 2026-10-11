@@ -9,7 +9,7 @@
 # the config is automatically migrated to the latest version while
 # keeping any values that you have modified. A backup of the old file
 # is created at 'config.yml.bak' just in case.
-config-version: 4
+config-version: 5
 
 # Item frames and maps will appear invisible behind
 # the image giving the effect that the pixels are
@@ -82,15 +82,25 @@ ffmpeg:
   # The base URL to download the static ffmpeg binary from.
   # (the '{filename}' token is replaced with the archive name)
   download-url: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/{filename}
-  # Losslessly re-compress image sources (PNG/WebP/JPEG XL) when they
-  # are read for image creation using the command for their format.
-  # The optimized copy is cached in the '.imgcache' folder keyed by
-  # content, so re-using the same source costs nothing. Hardware
-  # acceleration is only attempted when the device is actually mounted.
-  recompress: true
+  # Re-compress image sources (PNG/WebP/JPEG XL, and JPEG with a small
+  # quality loss) with ffmpeg when they are read for image creation.
+  # NOTE: this only makes the cached SOURCE file smaller. It does not
+  # reduce the size of the stored image or what is sent to players (both
+  # depend only on the map pixels), so it is disabled by default.
+  # The optimized copy is cached in the '.imgcache' folder keyed by content.
+  recompress: false
   # Preferred re-compression format: AUTO, PNG, WEBP or JXL.
   # AUTO picks the best lossless encoder available (JXL > WebP > PNG).
   recompress-format: AUTO
+
+# Image quality/size trade-offs applied when an image is CREATED.
+# Noise and grain are what make maps expensive to send: every section is
+# 16 KB of color indexes and noisy ones barely compress. A median filter
+# removes the noise while keeping edges sharp, which usually looks the
+# same on a map but can reduce the data sent to players by several times.
+image-quality:
+  # Options: OFF, LIGHT (3x3 filter), STRONG (5x5 filter) - Default: OFF
+  smoothing: OFF
 
 # Lossless zstd compression of stored images (database/file).
 # This only affects newly saved data; existing data remains readable.

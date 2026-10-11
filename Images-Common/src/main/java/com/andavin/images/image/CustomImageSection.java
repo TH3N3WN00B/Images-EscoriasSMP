@@ -24,6 +24,7 @@
 package com.andavin.images.image;
 
 import com.andavin.images.MapHelper;
+import com.andavin.util.MinecraftVersion;
 import org.bukkit.Location;
 import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Player;
@@ -62,6 +63,7 @@ public class CustomImageSection implements Serializable {
     private transient Location location;
     private transient int frameId, mapId; // Should not be
     transient Set<UUID> shown = ConcurrentHashMap.newKeySet();
+    private transient boolean empty;
 
     CustomImageSection(Location location, BlockFace direction, int rotation, BufferedImage image) {
         this.rotation = rotation;
@@ -70,6 +72,7 @@ public class CustomImageSection implements Serializable {
         this.location = location;
         this.direction = direction;
         this.pixels = MapHelper.getPixels(image);
+        this.empty = isBlank(this.pixels);
     }
 
     /**
@@ -137,7 +140,7 @@ public class CustomImageSection implements Serializable {
      */
     public void show(Player player) {
 
-        if (this.shown.add(player.getUniqueId())) {
+        if (this.shown.add(player.getUniqueId()) && !this.skip()) {
             MapHelper.createMap(player, this.frameId, this.mapId, this.location, this.direction, this.rotation, this.pixels);
         }
     }
@@ -149,9 +152,29 @@ public class CustomImageSection implements Serializable {
      */
     public void hide(Player player) {
 
-        if (this.shown.remove(player.getUniqueId())) {
+        if (this.shown.remove(player.getUniqueId()) && !this.skip()) {
             MapHelper.destroyMaps(player, this.frameId);
         }
+    }
+
+    /**
+     * A section with no visible pixel has nothing to show when the frames
+     * are invisible (1.16+), so neither the frame nor the map is sent.
+     */
+    private boolean skip() {
+        return this.empty && MapHelper.isInvisible() &&
+                MinecraftVersion.greaterThanOrEqual(MinecraftVersion.v1_16);
+    }
+
+    private static boolean isBlank(byte[] pixels) {
+
+        for (byte pixel : pixels) {
+            if (pixel != 0) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private void writeObject(ObjectOutputStream out) throws IOException {
@@ -165,5 +188,6 @@ public class CustomImageSection implements Serializable {
         this.frameId = ID_COUNTER.getAndIncrement();
         this.mapId = MapHelper.getNextMapId(location.getWorld());
         this.shown = ConcurrentHashMap.newKeySet();
+        this.empty = isBlank(this.pixels);
     }
 }

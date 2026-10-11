@@ -26,6 +26,7 @@ package com.andavin.images.command;
 import com.andavin.images.Images;
 import com.andavin.images.image.CustomImage;
 import com.andavin.images.image.ImageDecoder;
+import com.andavin.images.image.ImageSmoother;
 import com.andavin.util.*;
 import java.awt.*;
 import java.awt.image.BufferedImage;
@@ -85,6 +86,12 @@ final class CreateCommand extends BaseCommand implements Listener {
      */
     public static volatile int maxSections = 64;
 
+    /**
+     * How much noise is removed from an image when it is created so
+     * that it is cheaper to store and to send. Written from the config.
+     */
+    public static volatile ImageSmoother.Level smoothing = ImageSmoother.Level.OFF;
+
     CreateCommand() {
         super("create", "images.command.create");
         this.setAliases("new", "add", "load");
@@ -92,6 +99,8 @@ final class CreateCommand extends BaseCommand implements Listener {
         this.setUsage("/image create <image name | URL> [scale percent]");
         this.setDesc("Create and begin pasting a new custom image");
         maxSections = Images.getInstance().getConfig().getInt("max-sections", 64);
+        smoothing = ImageSmoother.Level.parse(
+                Images.getInstance().getConfig().getString("image-quality.smoothing", "OFF"));
         Bukkit.getPluginManager().registerEvents(this, Images.getInstance());
     }
 
@@ -323,6 +332,9 @@ final class CreateCommand extends BaseCommand implements Listener {
                     image = scale(image, targetWidth, targetHeight);
                 }
 
+                // Remove grain last, at the final size, so the image is cheaper to send
+                image = ImageSmoother.smooth(image, CreateCommand.smoothing);
+
                 return image;
 
             } catch (Exception e) {
@@ -404,6 +416,11 @@ final class CreateCommand extends BaseCommand implements Listener {
             connection.setInstanceFollowRedirects(false);
             connection.setConnectTimeout(10000);
             connection.setReadTimeout(30000);
+            // Many image hosts reject the default Java agent
+            connection.setRequestProperty("User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+                            "Chrome/124.0 Safari/537.36 Images-EscoriasSMP");
+            connection.setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8");
             connection.setRequestProperty("Referer", current.getProtocol() + "://" + current.getHost() + "/");
             int responseCode = connection.getResponseCode();
             if (responseCode >= 300 && responseCode < 400) {
