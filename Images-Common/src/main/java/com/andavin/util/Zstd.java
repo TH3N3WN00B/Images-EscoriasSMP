@@ -29,7 +29,10 @@ import com.github.luben.zstd.ZstdOutputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.PushbackInputStream;
+import java.util.Arrays;
 
 /**
  * A small wrapper around {@link ZstdInputStream}/{@link ZstdOutputStream}
@@ -128,6 +131,44 @@ public final class Zstd {
 
         out.write(MAGIC, 0, MAGIC.length);
         return new ZstdOutputStream(out, level);
+    }
+
+    /**
+     * Wrap the given input stream so that compressed data is decompressed
+     * while it is read. Data that does not have the magic header is read
+     * as is so pre-existing storage remains readable.
+     * <p>
+     * Unlike {@link #decompress(byte[])} this never holds the data in
+     * memory, so it is meant for trusted local files of any size.
+     *
+     * @param in The stream to wrap.
+     * @return The stream to read the data from.
+     * @throws IOException If the header cannot be read.
+     */
+    public static InputStream unwrap(InputStream in) throws IOException {
+
+        PushbackInputStream pushback = new PushbackInputStream(in, MAGIC.length);
+        byte[] head = new byte[MAGIC.length];
+        int read = 0;
+        while (read < head.length) {
+
+            int count = pushback.read(head, read, head.length - read);
+            if (count == -1) {
+                break;
+            }
+
+            read += count;
+        }
+
+        if (read == MAGIC.length && Arrays.equals(head, MAGIC)) {
+            return new ZstdInputStream(pushback);
+        }
+
+        if (read > 0) {
+            pushback.unread(head, 0, read);
+        }
+
+        return pushback;
     }
 
     /**

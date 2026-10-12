@@ -30,6 +30,7 @@ import com.andavin.images.data.FileDataManager;
 import com.andavin.images.data.MySQLDataManager;
 import com.andavin.images.data.SQLiteDataManager;
 import com.andavin.images.image.CustomImage;
+import com.andavin.images.image.CustomImageSection;
 import com.andavin.images.image.Ffmpeg;
 import com.andavin.util.*;
 import java.io.File;
@@ -92,6 +93,16 @@ public class Images extends JavaPlugin implements Listener {
     private static File imagesDirectory;
     private static DataManager dataManager;
     private static final List<CustomImage> IMAGES = new ArrayList<>();
+    // An immutable copy of the images that is replaced on every change. It is read
+    // far more often than it is written so readers never lock or allocate
+    private static volatile CustomImage[] snapshot = EMPTY_IMAGES_ARRAY;
+    // The latest location of each player that has a refresh waiting to run
+    private static final Map<UUID, Location> PENDING_REFRESH = new ConcurrentHashMap<>();
+    // What each player was looking at the last time that images were culled
+    private static final Map<UUID, ViewState> VIEW_STATES = new ConcurrentHashMap<>();
+    private static final int MAX_LINE_OF_SIGHT_TESTS = 24;
+    private double cullingCosine;
+    private boolean cullingOcclusion;
     // Thread safe: written on the main thread (moves) and iterated and written
     // to from the asynchronous idle-refresh task
     private static final Map<UUID, Long> LAST_MOVE_TIMES = new ConcurrentHashMap<>();
@@ -104,7 +115,6 @@ public class Images extends JavaPlugin implements Listener {
         Logger.initialize(this.getLogger());
         imagesDirectory = this.getDataFolder();
         Logger.initializeFileLogging(imagesDirectory);
-        PacketListener.getImages = () -> IMAGES;
         setFieldValue(Scheduler.class, null, "instance", this);
         setFieldValue(TimeoutMetadata.class, null, "instance", this);
     }
@@ -140,6 +150,16 @@ public class Images extends JavaPlugin implements Listener {
         MapHelper.invisible = config.getBoolean("invisible-frames", true);
         MapHelper.showDistance = config.getInt("show-distance", 64);
         MapHelper.hideDistance = config.getInt("hide-distance", 128);
+        MapHelper.setCulling(config.getBoolean("culling.enabled", true));
+        this.cullingCosine = Math.cos(Math.toRadians(
+                Math.max(10, Math.min(180, config.getDouble("culling.view-angle", 100)))));
+        this.cullingOcclusion = config.getBoolean("culling.occlusion", true);
+        if (MapHelper.isCulling()) {
+            Logger.info("View culling enabled. Images are only sent to players that are looking at them.");
+            // Line of sight reads blocks, so this must run on the main thread
+            long interval = Math.max(1, config.getInt("culling.check-interval-ticks", 5));
+            Bukkit.getScheduler().runTaskTimer(this, this::cullImages, 40L, interval);
+        }
         // Compress images at rest with zstd (lossless) so that the
         // database/file storage is smaller. Old data remains readable.
         Zstd.setEnabled(config.getBoolean("image-storage.compression", true));
@@ -198,10 +218,8 @@ public class Images extends JavaPlugin implements Listener {
                 loaded = Collections.emptyList();
                 Logger.severe(throwable, "Failed to load images from storage:");
             }
-            synchronized (IMAGES) {
-                IMAGES.addAll(loaded);
-            }
-            Logger.info("Loaded {} images...", IMAGES.size());
+            addImages(loaded);
+            Logger.info("Loaded {} images...", loaded.size());
             // Commands and their listeners must be registered on the main thread
             Scheduler.sync(CommandRegistry::registerCommands);
         }, 40L);
@@ -234,7 +252,11 @@ public class Images extends JavaPlugin implements Listener {
         // retain images or stale player entries
         synchronized (IMAGES) {
             IMAGES.clear();
+            snapshot = EMPTY_IMAGES_ARRAY;
         }
+        CustomImageSection.clearRegistry();
+        PENDING_REFRESH.clear();
+        VIEW_STATES.clear();
         LAST_MOVE_TIMES.clear();
         LISTENER_TASKS.clear();
     }
@@ -276,13 +298,12 @@ public class Images extends JavaPlugin implements Listener {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
         LAST_MOVE_TIMES.remove(uuid);
+        PENDING_REFRESH.remove(uuid);
+        VIEW_STATES.remove(uuid);
         LISTENER_TASKS.remove(uuid);
         Scheduler.async(() -> {
 
-            CustomImage[] images;
-            synchronized (IMAGES) {
-                images = IMAGES.toArray(EMPTY_IMAGES_ARRAY);
-            }
+            CustomImage[] images = snapshot;
 
             for (CustomImage image : images) {
                 image.remove(player, false);
@@ -297,10 +318,7 @@ public class Images extends JavaPlugin implements Listener {
         Location location = event.getRespawnLocation();
         Scheduler.laterAsync(() -> {
 
-            CustomImage[] images;
-            synchronized (IMAGES) {
-                images = IMAGES.toArray(EMPTY_IMAGES_ARRAY);
-            }
+            CustomImage[] images = snapshot;
 
             for (CustomImage image : images) {
                 image.remove(player, true);
@@ -327,7 +345,16 @@ public class Images extends JavaPlugin implements Listener {
 
         if (from.getBlockX() >> 4 != to.getBlockX() >> 4 ||
                 from.getBlockZ() >> 4 != to.getBlockZ() >> 4) {
-            Scheduler.async(() -> this.refreshImages(player, to));
+            // Several chunk changes in a row only need the latest refresh
+            UUID id = player.getUniqueId();
+            if (PENDING_REFRESH.put(id, to) == null) {
+                Scheduler.async(() -> {
+                    Location latest = PENDING_REFRESH.remove(id);
+                    if (latest != null) {
+                        this.refreshImages(player, latest);
+                    }
+                });
+            }
         }
     }
 
@@ -493,6 +520,8 @@ public class Images extends JavaPlugin implements Listener {
             }
 
             IMAGES.add(image);
+            image.register();
+            snapshot = IMAGES.toArray(EMPTY_IMAGES_ARRAY);
         }
 
         return true;
@@ -507,7 +536,13 @@ public class Images extends JavaPlugin implements Listener {
     public static void addImages(List<CustomImage> images) {
 
         synchronized (IMAGES) {
+
             IMAGES.addAll(images);
+            for (CustomImage image : images) {
+                image.register();
+            }
+
+            snapshot = IMAGES.toArray(EMPTY_IMAGES_ARRAY);
         }
     }
 
@@ -531,7 +566,13 @@ public class Images extends JavaPlugin implements Listener {
         }
 
         synchronized (IMAGES) {
-            return IMAGES.remove(image);
+
+            boolean removed = IMAGES.remove(image);
+            if (removed) {
+                snapshot = IMAGES.toArray(EMPTY_IMAGES_ARRAY);
+            }
+
+            return removed;
         }
     }
 
@@ -549,12 +590,83 @@ public class Images extends JavaPlugin implements Listener {
         }
     }
 
+    /**
+     * Show the images that each player has just started to look at. Players
+     * that have not moved or turned since the last time are skipped.
+     */
+    private void cullImages() {
+
+        CustomImage[] images = snapshot;
+        if (images.length == 0) {
+            return;
+        }
+
+        for (Player player : Bukkit.getOnlinePlayers()) {
+
+            Location eye = player.getEyeLocation();
+            ViewState state = VIEW_STATES.computeIfAbsent(player.getUniqueId(), id -> new ViewState());
+            if (!state.update(eye)) {
+                continue;
+            }
+
+            int[] budget = {MAX_LINE_OF_SIGHT_TESTS};
+            int start = state.next % images.length;
+            for (int i = 0; i < images.length; i++) {
+
+                if (budget[0] <= 0) {
+                    // Continue from here on the next check, even if the player stops
+                    state.next = start + i;
+                    state.pending = true;
+                    break;
+                }
+
+                images[(start + i) % images.length].showIfVisible(
+                        player, eye, this.cullingCosine, this.cullingOcclusion, budget);
+            }
+
+            if (budget[0] <= 0) {
+                state.pending = true; // Some tests may have been skipped
+            }
+        }
+    }
+
+    /**
+     * The view of a player when they were last checked.
+     */
+    private static final class ViewState {
+
+        private double x, y, z;
+        private float yaw, pitch;
+        private boolean initialized;
+        private boolean pending;
+        private int next;
+
+        /**
+         * Store the view and tell if it is different from the last one.
+         */
+        private boolean update(Location eye) {
+
+            boolean changed = !this.initialized || this.pending ||
+                    Math.abs(eye.getX() - this.x) > 0.05 || Math.abs(eye.getY() - this.y) > 0.05 ||
+                    Math.abs(eye.getZ() - this.z) > 0.05 ||
+                    Math.abs(eye.getYaw() - this.yaw) > 1.5F || Math.abs(eye.getPitch() - this.pitch) > 1.5F;
+            if (changed) {
+                this.initialized = true;
+                this.pending = false;
+                this.x = eye.getX();
+                this.y = eye.getY();
+                this.z = eye.getZ();
+                this.yaw = eye.getYaw();
+                this.pitch = eye.getPitch();
+            }
+
+            return changed;
+        }
+    }
+
     private void refreshImages(Player player, Location location) {
 
-        CustomImage[] images;
-        synchronized (IMAGES) {
-            images = IMAGES.toArray(EMPTY_IMAGES_ARRAY);
-        }
+        CustomImage[] images = snapshot;
 
         for (CustomImage image : images) {
             image.refresh(player, location);

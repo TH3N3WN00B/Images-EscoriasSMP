@@ -24,6 +24,7 @@
 package com.andavin.images.image;
 
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferInt;
 import java.util.Arrays;
 import java.util.Locale;
 
@@ -92,8 +93,11 @@ public final class ImageSmoother {
 
         int width = image.getWidth(), height = image.getHeight();
         int radius = level.radius;
-        int[] source = image.getRGB(0, 0, width, height, null, 0, width);
-        int[] result = new int[source.length];
+        // Read straight from the image when possible and write straight into
+        // the output, so no more than one extra pixel array is ever allocated
+        BufferedImage output = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        int[] result = ((DataBufferInt) output.getRaster().getDataBuffer()).getData();
+        int[] source = pixelsOf(image);
         int capacity = (radius * 2 + 1) * (radius * 2 + 1);
         int[] reds = new int[capacity], greens = new int[capacity], blues = new int[capacity];
         for (int y = 0; y < height; y++) {
@@ -132,8 +136,23 @@ public final class ImageSmoother {
             }
         }
 
-        BufferedImage output = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-        output.setRGB(0, 0, width, height, result, 0, width);
         return output;
+    }
+
+    private static int[] pixelsOf(BufferedImage image) {
+
+        int width = image.getWidth(), height = image.getHeight();
+        if (image.getType() == BufferedImage.TYPE_INT_ARGB &&
+                image.getRaster().getDataBuffer() instanceof DataBufferInt &&
+                image.getRaster().getSampleModelTranslateX() == 0 &&
+                image.getRaster().getSampleModelTranslateY() == 0) {
+
+            int[] data = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
+            if (data.length == width * height) {
+                return data;
+            }
+        }
+
+        return image.getRGB(0, 0, width, height, null, 0, width);
     }
 }

@@ -240,6 +240,9 @@ public final class Logger {
      * @param obj The object to log.
      */
     public static void debug(Object obj) {
+        if (!logger.isLoggable(Level.CONFIG)) {
+            return;
+        }
         logger.log(Level.CONFIG, obj.toString());
     }
 
@@ -249,6 +252,9 @@ public final class Logger {
      * @param msg The message to log.
      */
     public static void debug(String msg) {
+        if (!logger.isLoggable(Level.CONFIG)) {
+            return;
+        }
         logger.log(Level.CONFIG, msg);
     }
 
@@ -260,6 +266,9 @@ public final class Logger {
      * @param args The arguments to replace placeholders with.
      */
     public static void debug(String msg, Object... args) {
+        if (!logger.isLoggable(Level.CONFIG)) {
+            return;
+        }
         logger.log(Level.CONFIG, Logger.format(msg, args));
     }
 
@@ -272,6 +281,9 @@ public final class Logger {
      * @param args The arguments to place into the message.
      */
     public static void debug(Throwable throwable, String msg, Object... args) {
+        if (!logger.isLoggable(Level.CONFIG)) {
+            return;
+        }
         logger.log(Level.CONFIG, Logger.format(msg, args), throwable);
     }
 
@@ -281,6 +293,9 @@ public final class Logger {
      * @param throwable The throwable to log.
      */
     public static void debug(Throwable throwable) {
+        if (!logger.isLoggable(Level.CONFIG)) {
+            return;
+        }
         logger.log(Level.CONFIG, throwable.getMessage(), throwable);
     }
 

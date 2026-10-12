@@ -146,8 +146,13 @@ public final class Ffmpeg {
         }
         if (!overridePath.isEmpty()) {
             Logger.info("ffmpeg decoding enabled with custom binary '{}'", overridePath);
+        } else if (cachedBinaryExists()) {
+            Logger.info("ffmpeg decoding enabled (using the cached static binary)");
         } else {
-            Logger.info("ffmpeg decoding enabled (downloads a static binary on first use)");
+            // Nothing is downloaded or started until a file really needs ffmpeg, so
+            // servers that only use PNG/JPEG/GIF never pay for the binary at all
+            Logger.info("ffmpeg decoding enabled (the static binary is downloaded the first time it is needed)");
+            return;
         }
 
         // Probe the binary in the background so that the capabilities
@@ -167,6 +172,12 @@ public final class Ffmpeg {
         }, "images-ffmpeg-probe");
         probe.setDaemon(true);
         probe.start();
+    }
+
+    private static boolean cachedBinaryExists() {
+
+        File dir = new File(baseDir, ".ffmpeg");
+        return new File(dir, "ffmpeg").isFile() || new File(dir, "ffmpeg.exe").isFile();
     }
 
     /**

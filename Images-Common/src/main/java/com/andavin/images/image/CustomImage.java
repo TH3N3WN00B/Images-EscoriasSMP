@@ -30,6 +30,7 @@ import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Player;
+import org.bukkit.util.Vector;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;
@@ -38,6 +39,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Collections.emptySet;
@@ -56,6 +58,10 @@ public class CustomImage implements Serializable {
 
     private transient int id = -1;
     private transient Location location;
+    // Cached derived state. It is rebuilt lazily and never serialized
+    private transient volatile CustomImageSection[] cache;
+    private transient volatile Bounds bounds;
+    private transient volatile Set<UUID> viewers;
 
     private final UUID creator;
     private final String imageName;
@@ -167,14 +173,45 @@ public class CustomImage implements Serializable {
      */
     public void refresh(Player player, Location location) {
 
-        for (CustomImageSection section : this.snapshot()) {
+        CustomImageSection[] all = this.snapshot();
+        if (all.length == 0) {
+            return;
+        }
+
+        UUID id = player.getUniqueId();
+        Set<UUID> viewers = this.viewers();
+        boolean viewer = viewers.contains(id);
+        if (!viewer) {
+            // Nothing has been shown to this player so nothing can be hidden. If
+            // the whole image is out of showing range there is nothing to do
+            // either, which is by far the most common case on a busy server
+            if (MapHelper.isCulling()) {
+                // Showing is decided by showIfVisible(), which only shows what is looked at
+                return;
+            }
+
+            Bounds bounds = this.bounds(all);
+            if (location == null || !bounds.world.equals(location.getWorld())) {
+                return;
+            }
+
+            double distance = bounds.distanceSquared(location);
+            if (distance > MapHelper.showDistance * MapHelper.showDistance) {
+                return;
+            }
+        }
+
+        for (CustomImageSection section : all) {
 
             boolean sameWorld = location != null && section.getLocation().getWorld().equals(location.getWorld());
             if (sameWorld) {
 
                 double distance = section.getLocation().distanceSquared(location);
                 if (distance <= MapHelper.showDistance * MapHelper.showDistance) {
-                    section.show(player);
+                    // With culling an image is only extended once it has been seen
+                    if (viewer || !MapHelper.isCulling()) {
+                        section.show(player);
+                    }
                 } else if (distance > MapHelper.hideDistance * MapHelper.hideDistance) {
                     section.hide(player);
                 }
@@ -182,6 +219,77 @@ public class CustomImage implements Serializable {
                 section.hide(player);
             }
         }
+
+        boolean any = false;
+        for (CustomImageSection section : all) {
+            if (section.isShownTo(id)) {
+                any = true;
+                break;
+            }
+        }
+
+        if (any) {
+            viewers.add(id);
+        } else if (viewer) {
+            viewers.remove(id);
+        }
+    }
+
+    /**
+     * Show this image to the player if they can see it right now. It is
+     * only shown when it is in showing range, the player is in front of it,
+     * it is within the given angle of where they look and (optionally) the
+     * line of sight is not blocked by blocks.
+     * <p>
+     * Once shown the image stays until it is out of the hiding range, which
+     * is handled by {@link #refresh(Player, Location)}. This must be called
+     * from the main thread when {@code occlusion} is used.
+     *
+     * @param player The player to show the image to.
+     * @param eye The location of the eyes of the player (with the direction).
+     * @param cosLimit The cosine of the largest angle from the view direction.
+     * @param occlusion If blocks that are in the way should hide the image.
+     * @param budget A single element array with the amount of line of sight
+     *               tests that are still allowed, decreased for each test.
+     * @return If the image is now being shown to the player.
+     */
+    public boolean showIfVisible(Player player, Location eye, double cosLimit, boolean occlusion, int[] budget) {
+
+        CustomImageSection[] all = this.snapshot();
+        if (all.length == 0) {
+            return false;
+        }
+
+        UUID id = player.getUniqueId();
+        Set<UUID> viewers = this.viewers();
+        if (viewers.contains(id)) {
+            return true;
+        }
+
+        Bounds bounds = this.bounds(all);
+        if (!bounds.world.equals(eye.getWorld())) {
+            return false;
+        }
+
+        double show = MapHelper.showDistance;
+        if (bounds.distanceSquared(eye) > show * show || !bounds.isVisible(eye, cosLimit, occlusion, budget)) {
+            return false;
+        }
+
+        boolean shown = false;
+        for (CustomImageSection section : all) {
+
+            if (section.getLocation().distanceSquared(eye) <= show * show) {
+                section.show(player);
+                shown = true;
+            }
+        }
+
+        if (shown) {
+            viewers.add(id);
+        }
+
+        return shown;
     }
 
     /**
@@ -194,12 +302,17 @@ public class CustomImage implements Serializable {
      */
     public void remove(Player player, boolean online) {
 
+        if (!this.viewers().remove(player.getUniqueId()) && !online) {
+            // Never shown to this player, so there is nothing to forget
+            return;
+        }
+
         for (CustomImageSection section : this.snapshot()) {
 
             if (online) {
                 section.hide(player);
             } else {
-                section.shown.remove(player.getUniqueId());
+                section.forget(player.getUniqueId());
             }
         }
     }
@@ -217,7 +330,11 @@ public class CustomImage implements Serializable {
         synchronized (this.sections) {
             all = this.sections.values().toArray(new CustomImageSection[0]);
             this.sections.clear();
+            this.cache = null;
+            this.bounds = null;
         }
+
+        this.viewers().clear();
 
         int sections = all.length;
         if (sections != 0) {
@@ -227,8 +344,14 @@ public class CustomImage implements Serializable {
             Set<Player> players = new HashSet<>(sections);
             for (CustomImageSection section : all) {
                 ids[index++] = section.getFrameId();
-                section.shown.stream().map(Bukkit::getPlayer)
-                        .filter(Objects::nonNull).forEach(players::add);
+                for (UUID viewer : section.viewers()) {
+                    Player player = Bukkit.getPlayer(viewer);
+                    if (player != null) {
+                        players.add(player);
+                    }
+                }
+
+                section.unregister();
             }
 
             for (Player player : players) {
@@ -335,9 +458,13 @@ public class CustomImage implements Serializable {
                         PIXELS_PER_FRAME, PIXELS_PER_FRAME));
                 synchronized (this.sections) {
                     this.sections.put(section.getFrameId(), section);
+                    this.cache = null;
+                    this.bounds = null;
                 }
             }
         }
+
+        this.dedupePixels();
 
         for (Player player : players) {
             this.refresh(player, player.getLocation());
@@ -374,8 +501,206 @@ public class CustomImage implements Serializable {
     }
 
     private CustomImageSection[] snapshot() {
-        synchronized (this.sections) {
-            return this.sections.values().toArray(new CustomImageSection[0]);
+
+        CustomImageSection[] array = this.cache;
+        if (array == null) {
+
+            synchronized (this.sections) {
+                array = this.cache;
+                if (array == null) {
+                    this.cache = array = this.sections.values().toArray(new CustomImageSection[0]);
+                }
+            }
+        }
+
+        return array;
+    }
+
+    private Set<UUID> viewers() {
+
+        Set<UUID> set = this.viewers;
+        if (set == null) {
+
+            synchronized (this.sections) {
+                set = this.viewers;
+                if (set == null) {
+                    this.viewers = set = ConcurrentHashMap.newKeySet(2);
+                }
+            }
+        }
+
+        return set;
+    }
+
+    private Bounds bounds(CustomImageSection[] all) {
+
+        Bounds bounds = this.bounds;
+        if (bounds == null) {
+            this.bounds = bounds = new Bounds(all, this.direction);
+        }
+
+        return bounds;
+    }
+
+    /**
+     * Make this image findable by the frame and map IDs of its sections.
+     * This must be called once the image is added for use and is undone
+     * by {@link #destroy()}.
+     */
+    public void register() {
+
+        for (CustomImageSection section : this.snapshot()) {
+            section.register(this);
+        }
+    }
+
+    /**
+     * Make sections that are exactly the same share one pixel array.
+     * Flat backgrounds and repeated areas then only use memory (and
+     * serialized space) once, and blank sections use the shared array.
+     */
+    private void dedupePixels() {
+
+        Map<Integer, java.util.List<byte[]>> seen = new HashMap<>();
+        for (CustomImageSection section : this.snapshot()) {
+
+            byte[] pixels = section.rawPixels();
+            java.util.List<byte[]> candidates = seen.computeIfAbsent(Arrays.hashCode(pixels), k -> new ArrayList<>(1));
+            byte[] match = null;
+            for (byte[] candidate : candidates) {
+                if (candidate == pixels || Arrays.equals(candidate, pixels)) {
+                    match = candidate;
+                    break;
+                }
+            }
+
+            if (match == null) {
+                candidates.add(pixels);
+            } else if (match != pixels) {
+                section.intern(match);
+            }
+        }
+    }
+
+    /**
+     * The area that all of the sections of an image are contained in.
+     */
+    private static final class Bounds {
+
+        private final World world;
+        private final double minX, minY, minZ, maxX, maxY, maxZ;
+        // The direction the image faces (the normal of its plane)
+        private final double normalX, normalY, normalZ;
+        // Points of the face of the image that are tested for being visible
+        private final double[][] samples;
+
+        private Bounds(CustomImageSection[] all, BlockFace face) {
+
+            double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, minZ = Double.MAX_VALUE;
+            double maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE, maxZ = -Double.MAX_VALUE;
+            for (CustomImageSection section : all) {
+
+                Location loc = section.getLocation();
+                minX = Math.min(minX, loc.getX());
+                minY = Math.min(minY, loc.getY());
+                minZ = Math.min(minZ, loc.getZ());
+                maxX = Math.max(maxX, loc.getX());
+                maxY = Math.max(maxY, loc.getY());
+                maxZ = Math.max(maxZ, loc.getZ());
+            }
+
+            this.world = all[0].getLocation().getWorld();
+            this.minX = minX;
+            this.minY = minY;
+            this.minZ = minZ;
+            this.maxX = maxX;
+            this.maxY = maxY;
+            this.maxZ = maxZ;
+            this.normalX = face.getModX();
+            this.normalY = face.getModY();
+            this.normalZ = face.getModZ();
+
+            // The center and the corners of the face, in the middle of the
+            // block and just in front of it. The center comes first since
+            // it is the most likely to be seen
+            double offset = 0.45;
+            double[] xs = {(minX + maxX) / 2, minX, maxX};
+            double[] ys = {(minY + maxY) / 2, minY, maxY};
+            double[] zs = {(minZ + maxZ) / 2, minZ, maxZ};
+            java.util.List<double[]> points = new ArrayList<>(9);
+            for (double sx : xs) {
+                for (double sy : ys) {
+                    for (double sz : zs) {
+
+                        double[] point = {Math.floor(sx) + 0.5 + this.normalX * offset,
+                                Math.floor(sy) + 0.5 + this.normalY * offset, Math.floor(sz) + 0.5 + this.normalZ * offset};
+                        boolean duplicate = false;
+                        for (double[] other : points) {
+                            if (other[0] == point[0] && other[1] == point[1] && other[2] == point[2]) {
+                                duplicate = true;
+                                break;
+                            }
+                        }
+
+                        if (!duplicate) {
+                            points.add(point);
+                        }
+                    }
+                }
+            }
+
+            this.samples = points.toArray(new double[0][]);
+        }
+
+        /**
+         * Test if any point of the image can be seen from the eye location.
+         */
+        private boolean isVisible(Location eye, double cosLimit, boolean occlusion, int[] budget) {
+
+            double ex = eye.getX(), ey = eye.getY(), ez = eye.getZ();
+            Vector look = eye.getDirection();
+            for (double[] point : this.samples) {
+
+                double vx = point[0] - ex, vy = point[1] - ey, vz = point[2] - ez;
+                // The map can only be seen from the side that it faces
+                if (this.normalX * vx + this.normalY * vy + this.normalZ * vz >= 0) {
+                    continue;
+                }
+
+                double distance = Math.sqrt(vx * vx + vy * vy + vz * vz);
+                // Very close points are always counted, an angle is not meaningful there
+                if (distance > 2.5 &&
+                        (vx * look.getX() + vy * look.getY() + vz * look.getZ()) / distance < cosLimit) {
+                    continue;
+                }
+
+                if (!occlusion) {
+                    return true;
+                }
+
+                if (budget[0] <= 0) {
+                    return false;
+                }
+
+                budget[0]--;
+                if (!LineOfSight.isBlocked(this.world, eye, point[0], point[1], point[2])) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /**
+         * Get the squared distance from the location to the closest point
+         * of the box. Every section is at least this far away.
+         */
+        private double distanceSquared(Location loc) {
+
+            double dx = Math.max(Math.max(this.minX - loc.getX(), 0), loc.getX() - this.maxX);
+            double dy = Math.max(Math.max(this.minY - loc.getY(), 0), loc.getY() - this.maxY);
+            double dz = Math.max(Math.max(this.minZ - loc.getZ(), 0), loc.getZ() - this.maxZ);
+            return dx * dx + dy * dy + dz * dz;
         }
     }
 
@@ -416,6 +741,8 @@ public class CustomImage implements Serializable {
         for (CustomImageSection section : sections) {
             this.sections.put(section.getFrameId(), section);
         }
+
+        this.dedupePixels();
     }
 
     static void writeLocation(ObjectOutputStream out, Location location) throws IOException {
@@ -445,13 +772,6 @@ public class CustomImage implements Serializable {
             return image;
         }
         // Get a scaled version of the image
-        Image img = image.getScaledInstance(xSections * PIXELS_PER_FRAME,
-                ySections * PIXELS_PER_FRAME, Image.SCALE_DEFAULT);
-        image = new BufferedImage(img.getWidth(null), img.getHeight(null), BufferedImage.TYPE_INT_ARGB);
-        // Copy the image over to the new instance
-        Graphics2D g2D = image.createGraphics();
-        g2D.drawImage(img, 0, 0, null);
-        g2D.dispose();
-        return image;
+        return ImageScaler.scale(image, xSections * PIXELS_PER_FRAME, ySections * PIXELS_PER_FRAME);
     }
 }

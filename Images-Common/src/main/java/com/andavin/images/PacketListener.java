@@ -28,8 +28,6 @@ import com.andavin.images.image.CustomImageSection;
 import com.andavin.util.Scheduler;
 import org.bukkit.entity.Player;
 
-import java.util.List;
-import java.util.function.Supplier;
 
 import static com.andavin.images.image.CustomImageSection.DEFAULT_STARTING_ID;
 
@@ -38,20 +36,6 @@ import static com.andavin.images.image.CustomImageSection.DEFAULT_STARTING_ID;
  * @author Andavin
  */
 public abstract class PacketListener<T, U> implements Versioned {
-
-    static Supplier<List<CustomImage>> getImages;
-
-    /**
-     * Get the current list of loaded images, never {@code null}.
-     * If the images have not been set yet (i.e. during startup) an
-     * empty list is returned so callers never hit an NPE.
-     *
-     * @return The list of images (possibly empty).
-     */
-    private static List<CustomImage> images() {
-        Supplier<List<CustomImage>> supplier = getImages;
-        return supplier == null ? java.util.Collections.emptyList() : supplier.get();
-    }
 
     /**
      * Set a new entity listener to the given player's
@@ -108,21 +92,7 @@ public abstract class PacketListener<T, U> implements Versioned {
      *         section is not found.
      */
     public static CustomImageSection getImageSection(int mapId) {
-
-        List<CustomImage> images = images();
-        //noinspection SynchronizationOnLocalVariableOrMethodParameter
-        synchronized (images) {
-
-            for (CustomImage image : images) {
-
-                CustomImageSection section = image.getSectionByMap(mapId);
-                if (section != null) {
-                    return section;
-                }
-            }
-
-            return null;
-        }
+        return CustomImageSection.getByMap(mapId);
     }
 
     /**
@@ -134,21 +104,7 @@ public abstract class PacketListener<T, U> implements Versioned {
      *         section is not found.
      */
     public static CustomImageSection getImageSectionByEntityId(int frameId) {
-
-        List<CustomImage> images = images();
-        //noinspection SynchronizationOnLocalVariableOrMethodParameter
-        synchronized (images) {
-
-            for (CustomImage image : images) {
-
-                CustomImageSection section = image.getSection(frameId);
-                if (section != null) {
-                    return section;
-                }
-            }
-
-            return null;
-        }
+        return CustomImageSection.getByFrame(frameId);
     }
 
     /**
@@ -166,22 +122,15 @@ public abstract class PacketListener<T, U> implements Versioned {
             return;
         }
 
-        Scheduler.async(() -> {
+        CustomImageSection section = CustomImageSection.getByFrame(entityId);
+        if (section == null) {
+            return;
+        }
 
-            List<CustomImage> images = images();
-            //noinspection SynchronizationOnLocalVariableOrMethodParameter
-            synchronized (images) {
-
-                for (CustomImage image : images) {
-
-                    CustomImageSection section = image.getSection(entityId);
-                    if (section != null) {
-                        listener.click(player, image, section, action, hand);
-                        return;
-                    }
-                }
-            }
-        });
+        CustomImage image = section.getImage();
+        if (image != null) {
+            Scheduler.async(() -> listener.click(player, image, section, action, hand));
+        }
     }
 
     public enum Hand {

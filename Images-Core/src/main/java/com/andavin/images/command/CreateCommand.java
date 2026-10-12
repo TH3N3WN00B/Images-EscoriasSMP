@@ -26,6 +26,7 @@ package com.andavin.images.command;
 import com.andavin.images.Images;
 import com.andavin.images.image.CustomImage;
 import com.andavin.images.image.ImageDecoder;
+import com.andavin.images.image.ImageScaler;
 import com.andavin.images.image.ImageSmoother;
 import com.andavin.util.*;
 import java.awt.*;
@@ -236,6 +237,7 @@ final class CreateCommand extends BaseCommand implements Listener {
                     if (Images.addImage(customImage)) {
                         player.sendMessage("§aSuccessfully created image§f " + customImage.getImageName());
                     } else {
+                        customImage.destroy(); // Hide it again and release its sections
                         player.sendMessage("§cFailed to create image at that location");
                     }
                 });
@@ -348,15 +350,7 @@ final class CreateCommand extends BaseCommand implements Listener {
         }
 
         private static BufferedImage scale(BufferedImage image, int width, int height) {
-
-            Image scaled = image.getScaledInstance(width, height, Image.SCALE_SMOOTH);
-            BufferedImage other = new BufferedImage(scaled.getWidth(null),
-                    scaled.getHeight(null), BufferedImage.TYPE_INT_ARGB);
-            // Copy the image over to the new instance
-            Graphics2D graphics = other.createGraphics();
-            graphics.drawImage(scaled, 0, 0, null);
-            graphics.dispose();
-            return other;
+            return ImageScaler.scale(image, width, height);
         }
     }
 

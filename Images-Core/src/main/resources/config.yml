@@ -9,7 +9,7 @@
 # the config is automatically migrated to the latest version while
 # keeping any values that you have modified. A backup of the old file
 # is created at 'config.yml.bak' just in case.
-config-version: 5
+config-version: 6
 
 # Item frames and maps will appear invisible behind
 # the image giving the effect that the pixels are
@@ -23,6 +23,22 @@ show-distance: 64
 
 # Image sections beyond this range will be hidden from players
 hide-distance: 128
+
+# View culling: an image is only sent to a player once they are looking
+# at it. Images behind the player, facing away from them or behind solid
+# blocks are not sent at all, which saves a lot of data and CPU on
+# servers with many images. Once an image has been sent it stays until
+# the player is further away than 'hide-distance'.
+culling:
+  enabled: true
+  # How often, in ticks, players that moved or turned are checked
+  check-interval-ticks: 5
+  # Images up to this angle (in degrees) from where the player is looking
+  # are sent. The screen shows less than this, so images start loading
+  # before they come into view when turning. Range 10-180.
+  view-angle: 100
+  # Do not send images that are behind solid blocks (walls, floors)
+  occlusion: true
 
 # Maximum number of 128x128-pixel sections a single image may span
 # (each section is a 128x128 block wall). Very large images use a lot of

@@ -43,6 +43,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 public class FileDataManager implements DataManager {
 
     private final File dataFile;
+    private List<CustomImage> cache; // The images as of the last read or write
 
     public FileDataManager(File dataFile) {
         checkArgument(!dataFile.exists() || dataFile.isFile(),
@@ -57,54 +58,16 @@ public class FileDataManager implements DataManager {
     @Override
     public synchronized List<CustomImage> load() {
 
-        if (!this.dataFile.exists()) {
-            return new ArrayList<>();
-        }
-
-        byte[] data;
-        try {
-            data = Files.readAllBytes(this.dataFile.toPath());
-            // Data written before this update was uncompressed so
-            // this is a no-op unless the file has the magic header
-            data = Zstd.decompress(data);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-
-        if (data.length == 0) {
-            return new ArrayList<>();
-        }
-
-        List<CustomImage> images;
-        try (ObjectInputStream stream = new SafeObjectInputStream(new ByteArrayInputStream(data))) {
-
-            int capacity = stream.readInt();
-            if (capacity < 0) {
-                throw new StreamCorruptedException("negative image count " + capacity);
-            }
-
-            // Never trust the stored count blindly: a corrupt header with a
-            // huge count would otherwise allocate an absurd array (OOM).
-            // Each entry occupies at least one byte in the stream, so the
-            // byte length is a safe upper bound for the element count.
-            images = new ArrayList<>(Math.min(capacity, data.length));
-            for (int i = 0; i < capacity; i++) {
-                images.add((CustomImage) stream.readObject());
-            }
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        } catch (ClassNotFoundException e) {
-            throw new UncheckedClassNotFoundException(e.getMessage(), e);
-        }
-
+        List<CustomImage> images = this.read();
+        this.cache = new ArrayList<>(images);
         return images;
     }
 
     @Override
     public synchronized void save(CustomImage image) {
-        // We have to read all of the images, add one to it and
-        // write them all again so as to not overwrite anything
-        List<CustomImage> images = this.load();
+        // Write everything again, but from the images that are already in
+        // memory instead of reading and deserializing the whole file first
+        List<CustomImage> images = new ArrayList<>(this.cached());
         images.add(image);
         this.saveAll(images);
     }
@@ -124,11 +87,15 @@ public class FileDataManager implements DataManager {
                 stream.writeInt(images.size());
                 for (CustomImage image : images) {
                     stream.writeObject(image);
+                    // Forget what was written so the stream does not hold a
+                    // reference to every image until it is closed
+                    stream.reset();
                 }
             }
 
             // Only move once every stream has been flushed and closed
             Files.move(temp.toPath(), this.dataFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            this.cache = new ArrayList<>(images);
         } catch (IOException e) {
             temp.delete();
             throw new UncheckedIOException(e);
@@ -137,11 +104,52 @@ public class FileDataManager implements DataManager {
 
     @Override
     public synchronized void delete(CustomImage image) {
-        // We have to read all of the images, remove one from it
-        // and write them all again so as to not overwrite anything
-        List<CustomImage> images = this.load();
+
+        List<CustomImage> images = new ArrayList<>(this.cached());
         if (images.remove(image)) {
             this.saveAll(images);
+        }
+    }
+
+    private List<CustomImage> cached() {
+
+        if (this.cache == null) {
+            this.cache = new ArrayList<>(this.read());
+        }
+
+        return this.cache;
+    }
+
+    /**
+     * Read all of the images from the file. The file is streamed through
+     * the decompressor so that neither the compressed nor the decompressed
+     * data are ever held in memory as a whole.
+     */
+    private List<CustomImage> read() {
+
+        if (!this.dataFile.isFile() || this.dataFile.length() == 0) {
+            return new ArrayList<>();
+        }
+
+        try (InputStream fileIn = new BufferedInputStream(new FileInputStream(this.dataFile), 65536);
+             ObjectInputStream stream = new SafeObjectInputStream(Zstd.unwrap(fileIn))) {
+
+            int capacity = stream.readInt();
+            if (capacity < 0) {
+                throw new StreamCorruptedException("negative image count " + capacity);
+            }
+
+            // Never trust the stored count for the allocation
+            List<CustomImage> images = new ArrayList<>(Math.min(capacity, 4096));
+            for (int i = 0; i < capacity; i++) {
+                images.add((CustomImage) stream.readObject());
+            }
+
+            return images;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        } catch (ClassNotFoundException e) {
+            throw new UncheckedClassNotFoundException(e.getMessage(), e);
         }
     }
 }

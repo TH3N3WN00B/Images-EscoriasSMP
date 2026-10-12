@@ -85,6 +85,26 @@ public abstract class MapHelper implements Versioned {
         return invisible;
     }
 
+    private static volatile boolean culling;
+
+    /**
+     * Tell if images are only sent to the players that are looking at them.
+     *
+     * @return If view culling is enabled.
+     */
+    public static boolean isCulling() {
+        return culling;
+    }
+
+    /**
+     * Set if images are only sent to the players that are looking at them.
+     *
+     * @param culling If view culling should be enabled.
+     */
+    public static void setCulling(boolean culling) {
+        MapHelper.culling = culling;
+    }
+
     public static MapView getMap(int id) {
         return BRIDGE.getWorldMap(id);
     }
